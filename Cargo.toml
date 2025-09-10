@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "evm",
+    "hub",
+    "solana",
+]

@@ -1,0 +1,10 @@
+[package]
+name = "hub"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.99"
+tokio = { version = "1.47.1", features = ["full"] }
+solana = { path = "../solana" }
+evm = { path = "../evm" }
