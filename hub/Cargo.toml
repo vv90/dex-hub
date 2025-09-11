@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.99"
-tokio = { version = "1.47.1", features = ["full"] }
 solana = { path = "../solana" }
 evm = { path = "../evm" }
+anyhow = "1.0.99"
+petgraph = "0.8.2"
+rust_decimal = { version = "1.37.2", features = ["maths"] }
+rust_decimal_macros = "1.36"
+tokio = { version = "1.47.1", features = ["full"] }

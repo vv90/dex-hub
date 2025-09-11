@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::{blockchain::BlockchainNetwork, rpc::call_data::CallData, uniswap::v3::contract};
+use crate::{blockchain::BlockchainNetwork, rpc::call_data::CallData, uniswap_internal::v3::contract};
 use alloy::{
     primitives::{Address, Bytes},
     sol_types::SolCall,

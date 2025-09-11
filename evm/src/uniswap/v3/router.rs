@@ -1,7 +1,7 @@
 use crate::{
     rpc::transaction_data::TransactionData,
     tokens::TokenAddress,
-    uniswap::v3::{contract, deployments, pool::Fee},
+    uniswap_internal::v3::{contract, deployments, pool::Fee},
 };
 use alloy::{
     primitives::{Address, Bytes, FixedBytes, I256, U256},

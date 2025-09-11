@@ -1,4 +1,4 @@
-use crate::uniswap::{
+use crate::uniswap_internal::{
     tick_math::{self, tick_high},
     utils::q_64_96_to_decimal,
 };

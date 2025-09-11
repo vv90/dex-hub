@@ -3,13 +3,10 @@ use std::marker::PhantomData;
 use crate::{
     blockchain::BlockchainNetwork,
     multicall,
+    pancakeswap_internal::v3::pool::{Fee, PoolAddress},
     rpc::multicall_data::MulticallData,
     tokens::{Token, TokenAddress},
-    uniswap_internal::v3::{
-        contract,
-        pool::{Fee, PoolAddress},
-        pool_state::PoolState,
-    },
+    uniswap_internal::v3::{contract, pool_state::PoolState},
     utils::try_into_decimal,
     virtual_reserves::VirtualReserves,
 };
@@ -25,7 +22,7 @@ pub struct ReservesCallData<B: BlockchainNetwork> {
     token0_decimals: u32,
     token1_decimals: u32,
     fee: Fee,
-    _blockchain_marker: PhantomData<B>,
+    _blockchain_marker: PhantomData<fn() -> B>,
 }
 
 impl<B: BlockchainNetwork> ReservesCallData<B> {
@@ -93,22 +90,6 @@ impl<B: BlockchainNetwork> MulticallData<B> for ReservesCallData<B> {
             let reserve1 = pool_state.virtual_reserve_y();
             let max_swap0 = pool_state.swap_limit_x(self.fee.tick_spacing())?;
             let max_swap1 = pool_state.swap_limit_y(self.fee.tick_spacing())?;
-
-            // let reserves = pool_state.pool_virtual_reserves(
-            //     token0_decimals,
-            //     token1_decimals,
-            //     self.fee as u32,
-            //     self.fee.tick_spacing(),
-            // )?;
-
-            // Ok(dex::pool_reserves::PoolReserves {
-            //     token0: TokenAddress(token0_address, B::BLOCKCHAIN),
-            //     token1: TokenAddress(token1_address, B::BLOCKCHAIN),
-            //     pool_id: dex::pool_id::PoolId::UniswapV3(self.pool_address, B::BLOCKCHAIN),
-            //     value: reserves,
-            // })
-            //
-            //
 
             Ok(VirtualReserves {
                 pool_id: PoolAddress(self.pool_address, B::BLOCKCHAIN),

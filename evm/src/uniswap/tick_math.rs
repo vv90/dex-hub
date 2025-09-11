@@ -205,7 +205,7 @@ pub fn tick_high(tick: I24, tick_spacing: U24) -> Result<I24> {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::uniswap::utils::q_64_96_to_decimal;
+    use crate::uniswap_internal::utils::q_64_96_to_decimal;
 
     use super::*;
     use proptest::prelude::*;

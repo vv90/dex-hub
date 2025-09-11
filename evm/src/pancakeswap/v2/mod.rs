@@ -1,0 +1,3 @@
+use alloy::primitives::{Address, address};
+pub const FACTORY_ADDRESS: Address = address!("0x1097053Fd2ea711dad45caCcc45EfF7548fCB362");
+pub const ROUTER_ADDRESS: Address = address!("0xEfF92A263d31888d860bD50809A8D171709b7b1c");

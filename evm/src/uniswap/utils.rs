@@ -86,12 +86,8 @@ pub fn fee_amount_from_int(fee: u32) -> Decimal {
 
 #[cfg(test)]
 pub mod tests {
-    use std::collections::HashMap;
 
-    use crate::{
-        tokens::{self, TokenAddress},
-        uniswap::v3::{pool::Fee, pool_state::PoolState},
-    };
+    use crate::uniswap_internal::v3::pool_state::PoolState;
 
     use super::*;
     use alloy::primitives::{FixedBytes, U128, U256, aliases::I24, bytes, fixed_bytes};

@@ -1,8 +1,9 @@
 use crate::blockchain::Blockchain;
+use crate::pancakeswap_internal::v3::pool::Pool;
 use crate::subgraph::{SubgraphConfig, SubgraphQueryParams};
 use crate::tokens::{Token, TokenAddress};
 use crate::{
-    uniswap_internal::v3::pool::{Fee, Pool, PoolAddress, fee_from_int},
+    pancakeswap_internal::v3::pool::{Fee, PoolAddress, fee_from_int},
     utils::u32_from_str,
 };
 use alloy::primitives::Address;
@@ -25,17 +26,6 @@ pub struct TokenData {
     #[serde(deserialize_with = "u32_from_str")]
     pub decimals: u32,
     pub symbol: String,
-    // #[serde(rename = "totalSupply")]
-    // pub total_supply: u128,
-    // #[serde(rename = "totalValueLocked")]
-    // pub total_value_locked: Decimal,
-    // #[serde(rename = "totalValueLockedUSD")]
-    // pub total_value_locked_usd: Decimal,
-    // #[serde(rename = "totalValueLockedUSDUntracked")]
-    // pub total_value_locked_usd_untracked: Decimal,
-    // pub volume: Decimal,
-    // #[serde(rename = "volumeUSD")]
-    // pub volume_usd: Decimal,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -43,23 +33,11 @@ pub struct PoolData {
     #[serde(rename = "id")]
     pub address: Address,
     #[serde(rename = "feeTier", deserialize_with = "fee_from_int_str")]
-    // #[serde(rename = "feeTier")]
     pub fee: Fee,
-    // #[serde(rename = "sqrtPrice")]
-    // pub sqrt_price_x96: U160,
-    // pub liquidity: U160,
-    // #[serde(deserialize_with = "tick_from_str")]
-    // pub tick: i32,
     pub token0: TokenData,
     pub token1: TokenData,
-    // #[serde(rename = "totalValueLockedToken0")]
-    // pub total_value_locked_token_0: Decimal,
-    // #[serde(rename = "totalValueLockedToken1")]
-    // pub total_value_locked_token_1: Decimal,
     // #[serde(rename = "totalValueLockedUSD")]
     // pub total_value_locked_usd: Decimal,
-    // #[serde(rename = "totalValueLockedUSDUntracked")]
-    // pub total_value_locked_untracked: Decimal,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -70,18 +48,18 @@ pub struct SubgraphResponse {
 fn map_pools(data: SubgraphResponse, blockchain: Blockchain) -> Vec<Pool> {
     data.pools
         .into_iter()
-        .map(|pool| Pool {
-            address: PoolAddress(pool.address, blockchain),
-            fee: pool.fee,
+        .map(|pool_data| Pool {
+            address: PoolAddress(pool_data.address, blockchain),
+            fee: pool_data.fee,
             token0: Token {
-                address: TokenAddress(pool.token0.address, blockchain),
-                decimals: pool.token0.decimals,
-                symbol: pool.token0.symbol,
+                address: TokenAddress(pool_data.token0.address, blockchain),
+                decimals: pool_data.token0.decimals,
+                symbol: pool_data.token0.symbol,
             },
             token1: Token {
-                address: TokenAddress(pool.token1.address, blockchain),
-                decimals: pool.token1.decimals,
-                symbol: pool.token1.symbol,
+                address: TokenAddress(pool_data.token1.address, blockchain),
+                decimals: pool_data.token1.decimals,
+                symbol: pool_data.token1.symbol,
             },
         })
         .collect()
@@ -97,28 +75,28 @@ fn format_query(
     }: SubgraphQueryParams,
 ) -> String {
     format!(
-        "{{ pools (first: {}, skip:{}, where: {{ totalValueLockedUSD_gt: {} }}, orderBy: totalValueLockedUSD, orderDirection: desc) {} }}",
+        "{{ pools (first:{}, skip:{}, orderBy:totalValueLockedUSD, orderDirection:desc, where:{{ totalValueLockedUSD_gt:{} }}) {} }}",
         limit, skip, min_value, QUERY
     )
 }
 
 pub const ETHEREUM: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
-    subgraph_url: env!("UNISWAP_V3_SUBGRAPH_ETH_URL"),
-    subgraph_name: "ethereum/uniswap/v3",
+    subgraph_url: env!("PANCAKESWAP_V3_SUBGRAPH_ETH_URL"),
+    subgraph_name: "ethereum/pancakeswap/v3",
     format_query,
     map_pools: |data| map_pools(data, Blockchain::Ethereum),
 };
 
 pub const BSC: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
-    subgraph_url: env!("UNISWAP_V3_SUBGRAPH_BSC_URL"),
-    subgraph_name: "bsc/uniswap/v3",
+    subgraph_url: env!("PANCAKESWAP_V3_SUBGRAPH_BSC_URL"),
+    subgraph_name: "bsc/pancakeswap/v3",
     format_query,
     map_pools: |data| map_pools(data, Blockchain::BSC),
 };
 
 pub const ARBITRUM: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
-    subgraph_url: env!("UNISWAP_V3_SUBGRAPH_ARBITRUM_URL"),
-    subgraph_name: "arbitrum/uniswap/v3",
+    subgraph_url: env!("PANCAKESWAP_V3_SUBGRAPH_ARBITRUM_URL"),
+    subgraph_name: "arbitrum/pancakeswap/v3",
     format_query,
     map_pools: |data| map_pools(data, Blockchain::Arbitrum),
 };
