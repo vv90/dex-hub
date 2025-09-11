@@ -1,5 +1,4 @@
 use alloy::primitives::Address;
-use serde::Deserialize;
 
 use crate::{blockchain::Blockchain, tokens::Token};
 

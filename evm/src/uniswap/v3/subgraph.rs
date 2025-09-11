@@ -7,6 +7,7 @@ use crate::{
 };
 use alloy::primitives::Address;
 use anyhow::Result;
+use rust_decimal::Decimal;
 use serde::Deserialize;
 
 fn fee_from_int_str<'de, D>(deserializer: D) -> Result<Fee, D::Error>
@@ -19,7 +20,7 @@ where
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct TokenData {
+struct TokenData {
     #[serde(rename = "id")]
     pub address: Address,
     #[serde(deserialize_with = "u32_from_str")]
@@ -39,7 +40,7 @@ pub struct TokenData {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct PoolData {
+struct PoolData {
     #[serde(rename = "id")]
     pub address: Address,
     #[serde(rename = "feeTier", deserialize_with = "fee_from_int_str")]
@@ -63,7 +64,7 @@ pub struct PoolData {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct SubgraphResponse {
+struct SubgraphResponse {
     pools: Vec<PoolData>,
 }
 
@@ -102,23 +103,31 @@ fn format_query(
     )
 }
 
-pub const ETHEREUM: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
+const ETHEREUM: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
     subgraph_url: env!("UNISWAP_V3_SUBGRAPH_ETH_URL"),
     subgraph_name: "ethereum/uniswap/v3",
     format_query,
     map_pools: |data| map_pools(data, Blockchain::Ethereum),
 };
 
-pub const BSC: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
+const BSC: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
     subgraph_url: env!("UNISWAP_V3_SUBGRAPH_BSC_URL"),
     subgraph_name: "bsc/uniswap/v3",
     format_query,
     map_pools: |data| map_pools(data, Blockchain::BSC),
 };
 
-pub const ARBITRUM: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
+const ARBITRUM: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
     subgraph_url: env!("UNISWAP_V3_SUBGRAPH_ARBITRUM_URL"),
     subgraph_name: "arbitrum/uniswap/v3",
     format_query,
     map_pools: |data| map_pools(data, Blockchain::Arbitrum),
 };
+
+pub async fn get_pools(blockchain: Blockchain, min_value: Decimal) -> Result<Vec<Pool>> {
+    match blockchain {
+        Blockchain::Ethereum => ETHEREUM.query_pools(min_value).await,
+        Blockchain::BSC => BSC.query_pools(min_value).await,
+        Blockchain::Arbitrum => ARBITRUM.query_pools(min_value).await,
+    }
+}

@@ -1,11 +1,13 @@
 use anyhow::Result;
 
+use crate::pools::collect_pools;
+
 mod graph;
-mod token;
+mod pools;
+mod tokens;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    evm::run_chains().await?;
-
+    collect_pools().await?;
     Ok(())
 }

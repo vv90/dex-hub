@@ -1,4 +1,4 @@
-use crate::whirlpool::Whirlpool;
+use crate::orca_internal::whirlpool::Whirlpool;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 
@@ -130,7 +130,7 @@ fn swap_limit_y(
 mod tests {
     use solana_sdk::pubkey::Pubkey;
 
-    use crate::whirlpool::WhirlpoolRewardInfo;
+    use crate::orca_internal::whirlpool::WhirlpoolRewardInfo;
 
     use super::*;
 

@@ -5,10 +5,12 @@ use crate::tokens::TokenAddress;
 use crate::uniswap_internal::v4::pool::{Fee, Pool, PoolId};
 use crate::utils::u32_from_str;
 use alloy::primitives::{Address, FixedBytes};
+use anyhow::Result;
+use rust_decimal::Decimal;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct TokenData {
+struct TokenData {
     #[serde(rename = "id")]
     pub address: Address,
     #[serde(deserialize_with = "u32_from_str")]
@@ -29,7 +31,7 @@ pub struct TokenData {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct PoolData {
+struct PoolData {
     pub id: FixedBytes<32>,
     #[serde(rename = "feeTier", deserialize_with = "u32_from_str")]
     // #[serde(rename = "feeTier")]
@@ -55,7 +57,7 @@ pub struct PoolData {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct SubgraphResponse {
+struct SubgraphResponse {
     pools: Vec<PoolData>,
 }
 
@@ -83,7 +85,7 @@ fn map_pools(data: SubgraphResponse, blockchain: Blockchain) -> Vec<Pool> {
 const QUERY: &str =
     "{ id feeTier tickSpacing token0 { id symbol decimals } token1 { id symbol decimals } }";
 
-pub fn format_query(
+fn format_query(
     SubgraphQueryParams {
         limit,
         skip,
@@ -96,23 +98,31 @@ pub fn format_query(
     )
 }
 
-pub const ETHEREUM: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
+const ETHEREUM: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
     subgraph_url: env!("UNISWAP_V4_SUBGRAPH_ETH_URL"),
     subgraph_name: "ethereum/uniswap/v4",
     format_query,
     map_pools: |data| map_pools(data, Blockchain::Ethereum),
 };
 
-pub const BSC: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
+const BSC: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
     subgraph_url: env!("UNISWAP_V4_SUBGRAPH_BSC_URL"),
     subgraph_name: "bsc/uniswap/v4",
     format_query,
     map_pools: |data| map_pools(data, Blockchain::BSC),
 };
 
-pub const ARBITRUM: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
+const ARBITRUM: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
     subgraph_url: env!("UNISWAP_V4_SUBGRAPH_ARBITRUM_URL"),
     subgraph_name: "arbitrum/uniswap/v4",
     format_query,
     map_pools: |data| map_pools(data, Blockchain::Arbitrum),
 };
+
+pub async fn get_pools(blockchain: Blockchain, min_value: Decimal) -> Result<Vec<Pool>> {
+    match blockchain {
+        Blockchain::Ethereum => ETHEREUM.query_pools(min_value).await,
+        Blockchain::BSC => BSC.query_pools(min_value).await,
+        Blockchain::Arbitrum => ARBITRUM.query_pools(min_value).await,
+    }
+}

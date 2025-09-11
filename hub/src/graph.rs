@@ -5,7 +5,7 @@ use petgraph::{
 };
 use std::{collections::HashMap, fs::File, io::Write};
 
-use crate::token::{self, TokenId};
+use crate::tokens::{self, TokenId};
 
 pub trait TokenAdjacency<T: std::fmt::Debug> {
     fn adjacent_tokens(&self) -> [TokenId; 2];
@@ -52,7 +52,7 @@ impl<T: std::fmt::Debug> TokensGraph<T> {
             .iter()
             .filter(|pool| {
                 let [token0, token1] = pool.adjacent_tokens();
-                !token::BLACKLIST.contains(&token0) && !token::BLACKLIST.contains(&token1)
+                !tokens::BLACKLIST.contains(&token0) && !tokens::BLACKLIST.contains(&token1)
             })
             .fold(self, |graph, pool| graph.with_pool(pool))
     }
