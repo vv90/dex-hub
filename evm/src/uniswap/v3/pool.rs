@@ -18,12 +18,6 @@ pub enum Fee {
     High = 10000,
 }
 
-impl Default for Fee {
-    fn default() -> Self {
-        Fee::Medium
-    }
-}
-
 impl Fee {
     pub fn fee_amount(self) -> Decimal {
         fee_amount_from_int(self as u32)

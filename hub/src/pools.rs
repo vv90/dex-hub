@@ -1,5 +1,5 @@
 use crate::{
-    graph::{TokenAdjacency, TokensGraph},
+    graph::{AdjacentTokens, DexGraph, TokenAdjacency},
     tokens::TokenId,
 };
 use anyhow::Result;
@@ -30,53 +30,53 @@ pub enum Pool {
 }
 
 impl TokenAdjacency<PoolId> for evm::uniswap::v2::Pool {
-    fn adjacent_tokens(&self) -> [TokenId; 2] {
-        [
+    fn adjacent_tokens(&self) -> AdjacentTokens {
+        AdjacentTokens::Undirected(
             TokenId::Evm(self.token0.address),
             TokenId::Evm(self.token1.address),
-        ]
+        )
     }
 
-    fn pool_id(&self) -> PoolId {
+    fn id(&self) -> PoolId {
         PoolId::UniswapV2(self.address)
     }
 }
 
 impl TokenAdjacency<PoolId> for evm::uniswap::v3::Pool {
-    fn adjacent_tokens(&self) -> [TokenId; 2] {
-        [
+    fn adjacent_tokens(&self) -> AdjacentTokens {
+        AdjacentTokens::Undirected(
             TokenId::Evm(self.token0.address),
             TokenId::Evm(self.token1.address),
-        ]
+        )
     }
 
-    fn pool_id(&self) -> PoolId {
+    fn id(&self) -> PoolId {
         PoolId::UniswapV3(self.address)
     }
 }
 
 impl TokenAdjacency<PoolId> for evm::uniswap::v4::Pool {
-    fn adjacent_tokens(&self) -> [TokenId; 2] {
-        [
+    fn adjacent_tokens(&self) -> AdjacentTokens {
+        AdjacentTokens::Undirected(
             TokenId::Evm(self.token0.address),
             TokenId::Evm(self.token1.address),
-        ]
+        )
     }
 
-    fn pool_id(&self) -> PoolId {
+    fn id(&self) -> PoolId {
         PoolId::UniswapV4(self.pool_id)
     }
 }
 
 impl TokenAdjacency<PoolId> for evm::pancakeswap::v3::Pool {
-    fn adjacent_tokens(&self) -> [TokenId; 2] {
-        [
+    fn adjacent_tokens(&self) -> AdjacentTokens {
+        AdjacentTokens::Undirected(
             TokenId::Evm(self.token0.address),
             TokenId::Evm(self.token1.address),
-        ]
+        )
     }
 
-    fn pool_id(&self) -> PoolId {
+    fn id(&self) -> PoolId {
         PoolId::PancakeSwapV3(self.address)
     }
 }
@@ -91,25 +91,45 @@ const EVM_BLOCKCHAINS: [evm::Blockchain; 3] = [
 
 async fn fill_pools_for_evm_blockchain(
     blockchain: Blockchain,
-    graph: TokensGraph<PoolId>,
-) -> Result<TokensGraph<PoolId>> {
+    graph: DexGraph<PoolId>,
+) -> Result<DexGraph<PoolId>> {
     Ok(graph
-        .with_pools(&evm::uniswap::v2::get_pools(blockchain, MIN_VALUE).await?)
-        .with_pools(&evm::uniswap::v3::get_pools(blockchain, MIN_VALUE).await?)
-        .with_pools(&evm::uniswap::v4::get_pools(blockchain, MIN_VALUE).await?)
-        .with_pools(&evm::pancakeswap::v3::get_pools(blockchain, MIN_VALUE).await?))
+        .with_adjacent_tokens(&evm::uniswap::v2::get_pools(blockchain, MIN_VALUE).await?)
+        .with_adjacent_tokens(&evm::uniswap::v3::get_pools(blockchain, MIN_VALUE).await?)
+        .with_adjacent_tokens(&evm::uniswap::v4::get_pools(blockchain, MIN_VALUE).await?)
+        .with_adjacent_tokens(&evm::pancakeswap::v3::get_pools(blockchain, MIN_VALUE).await?))
 }
 
 pub async fn collect_pools() -> Result<()> {
-    let mut tokens_graph: TokensGraph<PoolId> = TokensGraph::new();
+    let mut tokens_graph: DexGraph<PoolId> = DexGraph::new();
 
     for blockchain in EVM_BLOCKCHAINS {
         tokens_graph = fill_pools_for_evm_blockchain(blockchain, tokens_graph).await?;
     }
 
-    tokens_graph = tokens_graph.with_dead_end_tokens_removed();
+    // tokens_graph = tokens_graph.with_dead_end_tokens_removed();
 
     println!("Graph size: {}", tokens_graph.tokens_count());
+    println!(
+        "Graph components: {:?}",
+        tokens_graph
+            .components()
+            .iter()
+            .map(|component| component.len())
+            .collect::<Vec<_>>()
+    );
+
+    tokens_graph = tokens_graph.pruned();
+
+    println!("Graph size after pruning: {}", tokens_graph.tokens_count());
+    println!(
+        "Graph components after pruning: {:?}",
+        tokens_graph
+            .components()
+            .iter()
+            .map(|component| component.len())
+            .collect::<Vec<_>>()
+    );
 
     Ok(())
 }

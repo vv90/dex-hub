@@ -1,139 +1,151 @@
-use anyhow::Result;
-use petgraph::{
-    dot::{Config, Dot},
-    prelude::*,
-};
-use std::{collections::HashMap, fs::File, io::Write};
+use std::collections::HashSet;
 
-use crate::tokens::{self, TokenId};
+use petgraph::{algo::kosaraju_scc, prelude::*};
 
-pub trait TokenAdjacency<T: std::fmt::Debug> {
-    fn adjacent_tokens(&self) -> [TokenId; 2];
-    fn pool_id(&self) -> T;
+use crate::tokens::TokenId;
+
+pub enum AdjacentTokens {
+    Directed(TokenId, TokenId),
+    Undirected(TokenId, TokenId),
 }
 
-pub struct TokensGraph<T: std::fmt::Debug> {
-    graph: StableGraph<TokenId, T, Undirected>,
-    node_indexes: HashMap<TokenId, NodeIndex>,
+pub trait TokenAdjacency<T> {
+    fn adjacent_tokens(&self) -> AdjacentTokens;
+    fn id(&self) -> T;
 }
 
-impl<T: std::fmt::Debug> TokensGraph<T> {
+// since GraphMap does not allow parallel edges,
+// multiple node connections are listed in the edge weight as HashSet
+pub struct DexGraph<T: Eq + std::hash::Hash>(DiGraphMap<TokenId, HashSet<T>>);
+
+impl<T: Eq + std::hash::Hash> DexGraph<T> {
     pub fn new() -> Self {
-        Self {
-            graph: StableGraph::default(),
-            node_indexes: HashMap::new(),
-        }
+        DexGraph(DiGraphMap::new())
     }
 
-    fn with_token(mut self, token: TokenId) -> (Self, NodeIndex) {
-        let index = *self
-            .node_indexes
-            .entry(token)
-            .or_insert_with(|| self.graph.add_node(token));
-
-        (self, index)
-    }
-
-    fn with_pool<A: TokenAdjacency<T>>(self, pool: &A) -> Self {
-        let [token0, token1] = pool.adjacent_tokens();
-
-        let (tokens_graph, token0_index) = self.with_token(token0);
-        let (mut tokens_graph, token1_index) = tokens_graph.with_token(token1);
-
-        tokens_graph
-            .graph
-            .add_edge(token0_index, token1_index, pool.pool_id());
-
-        tokens_graph
-    }
-
-    pub fn with_pools<A: TokenAdjacency<T>>(self, pools: &[A]) -> Self {
-        pools
-            .iter()
-            .filter(|pool| {
-                let [token0, token1] = pool.adjacent_tokens();
-                !tokens::BLACKLIST.contains(&token0) && !tokens::BLACKLIST.contains(&token1)
-            })
-            .fold(self, |graph, pool| graph.with_pool(pool))
-    }
-
-    fn with_node_removed(mut self, node_index: NodeIndex) -> Self {
-        if let Some(weight) = self.graph.remove_node(node_index) {
-            self.node_indexes.remove(&weight);
-        }
-        self
-    }
-
-    fn node_recursive_check_and_remove(self, node_index: NodeIndex) -> Self {
-        // let edges = self.graph.edges(node_index).next();
-        let mut neighbors = self.graph.neighbors(node_index);
-
-        match neighbors
-            .next()
-            .map(|first_neighbor| (first_neighbor, neighbors.next()))
-        {
-            Some((_, Some(_))) => {
-                // has at least two neighbors
-                // leave as is
-                self
-            }
-            Some((first_neighbor, None)) => {
-                // has only one neighbor
-                // remove the node and recursively check the neighbor
-                self.with_node_removed(node_index)
-                    .node_recursive_check_and_remove(first_neighbor)
+    fn with_directed_edge(self, token0: TokenId, token1: TokenId, id: T) -> Self {
+        let DexGraph(mut graph) = self;
+        match graph.edge_weight_mut(token0, token1) {
+            Some(ids) => {
+                ids.insert(id);
             }
             None => {
-                // remove node
-                self.with_node_removed(node_index)
+                graph.add_edge(token0, token1, HashSet::from([id]));
             }
+        }
+        DexGraph(graph)
+    }
+
+    fn with_adjacency<A: TokenAdjacency<T>>(self, adjacency: &A) -> Self {
+        match adjacency.adjacent_tokens() {
+            AdjacentTokens::Directed(token0, token1) => {
+                self.with_directed_edge(token0, token1, adjacency.id())
+            }
+            AdjacentTokens::Undirected(token0, token1) => self
+                .with_directed_edge(token0, token1, adjacency.id())
+                .with_directed_edge(token1, token0, adjacency.id()),
         }
     }
 
-    pub fn with_dead_end_tokens_removed(self) -> Self {
-        let node_indexes = self.node_indexes.values().copied().collect::<Vec<_>>();
-        node_indexes.into_iter().fold(self, |graph, node_index| {
-            graph.node_recursive_check_and_remove(node_index)
-        })
+    pub fn with_adjacent_tokens<A: TokenAdjacency<T>>(self, adjacencies: &[A]) -> Self {
+        adjacencies
+            .iter()
+            .fold(self, |graph, adjacency| graph.with_adjacency(adjacency))
+    }
+
+    // removes the node and returns the updated graph and neighbors of the removed node
+    fn with_node_removed(self, token_id: TokenId) -> (Self, Vec<TokenId>) {
+        let DexGraph(mut graph) = self;
+        let neighbors = graph.neighbors(token_id).collect::<Vec<_>>();
+        graph.remove_node(token_id);
+        (DexGraph(graph), neighbors)
+    }
+
+    fn prune_recursive(self, token_id: TokenId, pruned_count: usize) -> (Self, usize) {
+        let DexGraph(graph) = self;
+
+        let mut incoming_iter = graph
+            .edges_directed(token_id, Direction::Incoming)
+            .map(|(_, _, ids)| ids);
+        let mut outgoing_iter = graph
+            .edges_directed(token_id, Direction::Outgoing)
+            .map(|(_, _, ids)| ids);
+
+        let node_to_remove = match (
+            incoming_iter.next().map(|ids| (ids, incoming_iter.next())),
+            outgoing_iter.next().map(|ids| (ids, outgoing_iter.next())),
+        ) {
+            // multiple incoming and multiple outgoing edges
+            (
+                Some((_incoming_ids, Some(_next_incoming_ids))),
+                Some((_outgoing_ids, Some(_next_outgoing_ids))),
+            ) => None,
+            // multiple incoming, single outgoing edge
+            (Some((_incoming_ids, Some(_next_incoming_ids))), Some((_outgoing_ids, None))) => None,
+            // single incoming, multiple outgoing edges
+            (Some((_incoming_ids, None)), Some((_outgoing_ids, Some(_next_outgoing_ids)))) => None,
+            // single incoming and single outgoing edge
+            (Some((incoming_ids, None)), Some((outgoing_ids, None))) => {
+                // check if there's more than one unique adjacency id into/out of the node
+                if incoming_ids.union(outgoing_ids).count() > 1 {
+                    None
+                } else {
+                    // it's a dead-end node
+                    Some(token_id)
+                }
+            }
+            // it's sink node
+            (Some(_), None) => Some(token_id),
+            // it's source node
+            (None, Some(_)) => Some(token_id),
+            // it's disconnected node
+            (None, None) => Some(token_id),
+        };
+
+        match node_to_remove {
+            Some(token_id) => {
+                // remove the node and check/prune it's neighbors recursively
+                let (updated_graph, neighbors) = DexGraph(graph).with_node_removed(token_id);
+                neighbors
+                    .into_iter()
+                    .fold((updated_graph, pruned_count + 1), |(g, s), t| {
+                        g.prune_recursive(t, s)
+                    })
+            }
+            None => (DexGraph(graph), pruned_count),
+        }
+    }
+
+    // removes all sink/source nodes and dead-ends (single incoming and outgoing connection using the same adjacency id)
+    pub fn pruned(self) -> Self {
+        let mut current_graph = self;
+        loop {
+            let (pruned_graph, pruned_count) = current_graph
+                .tokens()
+                .into_iter()
+                .fold((current_graph, 0), |(g, s), t| g.prune_recursive(t, s));
+
+            current_graph = pruned_graph;
+
+            if pruned_count == 0 {
+                break;
+            }
+        }
+        current_graph
+    }
+
+    pub fn components(&self) -> Vec<Vec<TokenId>> {
+        let DexGraph(graph) = self;
+        kosaraju_scc(graph)
     }
 
     pub fn tokens_count(&self) -> usize {
-        self.node_indexes.len()
+        let DexGraph(graph) = self;
+        graph.node_count()
     }
 
-    pub fn contains_token(&self, token_id: &TokenId) -> bool {
-        self.node_indexes.contains_key(token_id)
+    pub fn tokens(&self) -> HashSet<TokenId> {
+        let DexGraph(graph) = self;
+        graph.nodes().collect()
     }
-}
-
-pub fn render_tokens_graph<T: std::fmt::Debug, Ty: petgraph::EdgeType>(
-    graph: &Graph<TokenId, T, Ty>,
-    file_path: &str,
-    token_label_fn: &dyn Fn(&TokenId) -> String,
-    pool_label_fn: &dyn Fn(&T) -> String,
-) -> Result<()> {
-    let edge_attr =
-        |_: &Graph<TokenId, T, Ty>, e: petgraph::graph::EdgeReference<'_, T>| -> String {
-            let pool_id: &T = e.weight();
-
-            format!("label = \"{}\" ", pool_label_fn(pool_id))
-        };
-
-    let node_attr = |_: &Graph<TokenId, T, Ty>,
-                     (_, token_id): (petgraph::graph::NodeIndex, &TokenId)|
-     -> String { format!("label = \"{}\" ", token_label_fn(token_id)) };
-
-    // let graph_clone = self.graph.clone();
-    let dot = Dot::with_attr_getters(
-        graph,
-        &[Config::NodeNoLabel, Config::EdgeNoLabel],
-        &edge_attr,
-        &node_attr,
-    );
-
-    let dot_string = format!("{:?}", dot);
-    let mut file = File::create(file_path)?;
-    file.write_all(dot_string.as_bytes())?;
-
-    Ok(())
 }
