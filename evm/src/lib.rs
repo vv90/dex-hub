@@ -7,6 +7,7 @@ mod multicall;
 #[path = "pancakeswap/mod.rs"]
 mod pancakeswap_internal;
 
+mod chainlink;
 mod pool_id;
 mod reserves;
 mod rpc;

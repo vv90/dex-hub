@@ -89,7 +89,7 @@ const EVM_BLOCKCHAINS: [evm::Blockchain; 3] = [
     evm::Blockchain::Arbitrum,
 ];
 
-async fn fill_pools_for_evm_blockchain(
+async fn with_evm_blockchain_pools(
     blockchain: Blockchain,
     graph: DexGraph<PoolId>,
 ) -> Result<DexGraph<PoolId>> {
@@ -104,7 +104,7 @@ pub async fn collect_pools() -> Result<()> {
     let mut tokens_graph: DexGraph<PoolId> = DexGraph::new();
 
     for blockchain in EVM_BLOCKCHAINS {
-        tokens_graph = fill_pools_for_evm_blockchain(blockchain, tokens_graph).await?;
+        tokens_graph = with_evm_blockchain_pools(blockchain, tokens_graph).await?;
     }
 
     // tokens_graph = tokens_graph.with_dead_end_tokens_removed();
