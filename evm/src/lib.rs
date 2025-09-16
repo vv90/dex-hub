@@ -7,7 +7,6 @@ mod multicall;
 #[path = "pancakeswap/mod.rs"]
 mod pancakeswap_internal;
 
-mod chainlink;
 mod pool_id;
 mod reserves;
 mod rpc;
@@ -19,6 +18,7 @@ mod uniswap_internal;
 mod utils;
 mod virtual_reserves;
 
+pub mod chainlink;
 pub mod tokens;
 
 use rust_decimal::Decimal;

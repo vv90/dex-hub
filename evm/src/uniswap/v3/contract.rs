@@ -1,4 +1,7 @@
-use alloy::sol;
+use alloy::{
+    primitives::{Address, address},
+    sol,
+};
 
 // pub const SWAP_TOPIC: FixedBytes<32> =
 //     fixed_bytes!("0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67");
@@ -10,6 +13,8 @@ use alloy::sol;
 //     fixed_bytes!("0x0c396cd989a39f4459b5fa1aed6a9a8dcdbc45908acfd67e028cd568da98982c");
 
 // pub const SWAP_ROUTER_ADDRESS: Address = address!("0xE592427A0AEce92De3Edee1F18E0157C05861564");
+// TODO: replace with static function fn blockchain -> Address
+pub const SWAP_ROUTER2_ADDRESS: Address = address!("0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45");
 
 sol! (
     #[derive(Debug, PartialEq, Eq)]

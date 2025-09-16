@@ -1,7 +1,7 @@
 use crate::{
     rpc::transaction_data::TransactionData,
     tokens::TokenAddress,
-    uniswap_internal::v3::{contract, deployments, pool::Fee},
+    uniswap_internal::v3::{contract, pool::Fee},
 };
 use alloy::{
     primitives::{Address, Bytes, FixedBytes, I256, U256},
@@ -31,7 +31,7 @@ impl TransactionData for Swap {
     type Event = contract::IUniswapV3PoolEvents::Swap;
 
     fn contract_address(&self) -> Address {
-        deployments::SWAP_ROUTER2_ADDRESS
+        contract::SWAP_ROUTER2_ADDRESS
     }
 
     fn value(&self) -> Option<U256> {

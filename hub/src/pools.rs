@@ -3,7 +3,10 @@ use crate::{
     tokens::TokenId,
 };
 use anyhow::Result;
-use evm::Blockchain;
+use evm::{
+    Blockchain,
+    chainlink::{self, bridges::Bridge},
+};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
@@ -16,11 +19,6 @@ pub enum PoolId {
     Orca(solana::orca::PoolAddress),
 }
 
-pub struct Bridge {
-    from: TokenId,
-    to: TokenId,
-}
-
 pub enum Pool {
     UniswapV2(evm::uniswap::v2::Pool),
     UniswapV3(evm::uniswap::v3::Pool),
@@ -29,7 +27,13 @@ pub enum Pool {
     Orca(solana::orca::Pool),
 }
 
-impl TokenAdjacency<PoolId> for evm::uniswap::v2::Pool {
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TokensConnectionType {
+    Swap(PoolId),
+    Bridge(chainlink::pool::PoolAddress),
+}
+
+impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v2::Pool {
     fn adjacent_tokens(&self) -> AdjacentTokens {
         AdjacentTokens::Undirected(
             TokenId::Evm(self.token0.address),
@@ -37,12 +41,12 @@ impl TokenAdjacency<PoolId> for evm::uniswap::v2::Pool {
         )
     }
 
-    fn id(&self) -> PoolId {
-        PoolId::UniswapV2(self.address)
+    fn id(&self) -> TokensConnectionType {
+        TokensConnectionType::Swap(PoolId::UniswapV2(self.address))
     }
 }
 
-impl TokenAdjacency<PoolId> for evm::uniswap::v3::Pool {
+impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v3::Pool {
     fn adjacent_tokens(&self) -> AdjacentTokens {
         AdjacentTokens::Undirected(
             TokenId::Evm(self.token0.address),
@@ -50,12 +54,12 @@ impl TokenAdjacency<PoolId> for evm::uniswap::v3::Pool {
         )
     }
 
-    fn id(&self) -> PoolId {
-        PoolId::UniswapV3(self.address)
+    fn id(&self) -> TokensConnectionType {
+        TokensConnectionType::Swap(PoolId::UniswapV3(self.address))
     }
 }
 
-impl TokenAdjacency<PoolId> for evm::uniswap::v4::Pool {
+impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v4::Pool {
     fn adjacent_tokens(&self) -> AdjacentTokens {
         AdjacentTokens::Undirected(
             TokenId::Evm(self.token0.address),
@@ -63,12 +67,12 @@ impl TokenAdjacency<PoolId> for evm::uniswap::v4::Pool {
         )
     }
 
-    fn id(&self) -> PoolId {
-        PoolId::UniswapV4(self.pool_id)
+    fn id(&self) -> TokensConnectionType {
+        TokensConnectionType::Swap(PoolId::UniswapV4(self.pool_id))
     }
 }
 
-impl TokenAdjacency<PoolId> for evm::pancakeswap::v3::Pool {
+impl TokenAdjacency<TokensConnectionType> for evm::pancakeswap::v3::Pool {
     fn adjacent_tokens(&self) -> AdjacentTokens {
         AdjacentTokens::Undirected(
             TokenId::Evm(self.token0.address),
@@ -76,8 +80,21 @@ impl TokenAdjacency<PoolId> for evm::pancakeswap::v3::Pool {
         )
     }
 
-    fn id(&self) -> PoolId {
-        PoolId::PancakeSwapV3(self.address)
+    fn id(&self) -> TokensConnectionType {
+        TokensConnectionType::Swap(PoolId::PancakeSwapV3(self.address))
+    }
+}
+
+impl TokenAdjacency<TokensConnectionType> for chainlink::bridges::Bridge {
+    fn adjacent_tokens(&self) -> AdjacentTokens {
+        AdjacentTokens::Directed(
+            TokenId::Evm(self.local_token()),
+            TokenId::Evm(self.remote_token()),
+        )
+    }
+
+    fn id(&self) -> TokensConnectionType {
+        TokensConnectionType::Bridge(self.pool_address())
     }
 }
 
@@ -91,8 +108,8 @@ const EVM_BLOCKCHAINS: [evm::Blockchain; 3] = [
 
 async fn with_evm_blockchain_pools(
     blockchain: Blockchain,
-    graph: DexGraph<PoolId>,
-) -> Result<DexGraph<PoolId>> {
+    graph: DexGraph<TokensConnectionType>,
+) -> Result<DexGraph<TokensConnectionType>> {
     Ok(graph
         .with_adjacent_tokens(&evm::uniswap::v2::get_pools(blockchain, MIN_VALUE).await?)
         .with_adjacent_tokens(&evm::uniswap::v3::get_pools(blockchain, MIN_VALUE).await?)
@@ -101,12 +118,14 @@ async fn with_evm_blockchain_pools(
 }
 
 pub async fn collect_pools() -> Result<()> {
-    let mut tokens_graph: DexGraph<PoolId> = DexGraph::new();
+    let mut tokens_graph: DexGraph<TokensConnectionType> = DexGraph::new();
 
     for blockchain in EVM_BLOCKCHAINS {
         tokens_graph = with_evm_blockchain_pools(blockchain, tokens_graph).await?;
     }
 
+    // tokens_graph = tokens_graph
+    // .with_adjacent_tokens(&evm::chainlink::bridges::get_bridges(&EVM_BLOCKCHAINS).await?);
     // tokens_graph = tokens_graph.with_dead_end_tokens_removed();
 
     println!("Graph size: {}", tokens_graph.tokens_count());

@@ -10,6 +10,7 @@ use crate::{
     tokens::TokenAddress,
 };
 
+#[derive(Debug, Clone, Copy)]
 pub struct GetConfiguredTokensCallData<B: BlockchainNetwork> {
     start_index: u64,
     max_count: u64,
@@ -23,6 +24,18 @@ impl<B: BlockchainNetwork> GetConfiguredTokensCallData<B> {
             max_count,
             blockchain: PhantomData,
         }
+    }
+
+    pub fn next(&self) -> Self {
+        Self {
+            start_index: self.start_index + self.max_count,
+            max_count: self.max_count,
+            blockchain: PhantomData,
+        }
+    }
+
+    pub fn max_count(&self) -> u64 {
+        self.max_count
     }
 }
 

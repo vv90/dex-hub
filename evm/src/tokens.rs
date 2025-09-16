@@ -7,6 +7,12 @@ use crate::blockchain::Blockchain;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TokenAddress(pub(crate) Address, pub Blockchain);
 
+impl TokenAddress {
+    pub fn blockchain(&self) -> Blockchain {
+        self.1
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Token {
     pub address: TokenAddress,

@@ -14,7 +14,7 @@ use crate::{
 
 pub struct GetPoolsCallData<'a, B: BlockchainNetwork> {
     token_addresses: &'a [TokenAddress],
-    blockchain: PhantomData<B>,
+    blockchain_marker: PhantomData<B>,
 }
 
 impl<'a, B: BlockchainNetwork> GetPoolsCallData<'a, B> {
@@ -35,13 +35,13 @@ impl<'a, B: BlockchainNetwork> GetPoolsCallData<'a, B> {
 
         Ok(Self {
             token_addresses,
-            blockchain: PhantomData,
+            blockchain_marker: PhantomData,
         })
     }
 }
 
 impl<'a, B: BlockchainNetwork> CallData<B> for GetPoolsCallData<'a, B> {
-    type Output = Vec<PoolAddress<B>>;
+    type Output = Vec<Option<PoolAddress>>;
 
     fn contract_address(&self) -> Address {
         contract::token_admin_registry_address(B::BLOCKCHAIN)
@@ -65,7 +65,13 @@ impl<'a, B: BlockchainNetwork> CallData<B> for GetPoolsCallData<'a, B> {
         Ok(output
             .into_iter()
             // .zip(self.token_addresses.iter())
-            .map(|pool_address| (PoolAddress::new(pool_address)))
+            .map(|pool_address| {
+                if pool_address.is_zero() {
+                    None
+                } else {
+                    Some(PoolAddress(pool_address, B::BLOCKCHAIN))
+                }
+            })
             .collect())
     }
 }
