@@ -3,40 +3,45 @@ use serde::Deserialize;
 use serde_with::{DisplayFromStr, serde_as};
 use solana_sdk::pubkey::Pubkey;
 
+use crate::{
+    orca::{Fee, Pool, PoolAddress},
+    tokens::{Token, TokenAddress},
+};
+
 // const WHIRPOOLS_API_URL: &str = "https://api.orca.so/v2/solana/pools?sortBy=volume&sortDirection=desc&hasAdaptiveFee=false&size=100";
 const WHIRPOOLS_API_URL: &str =
-    "https://api.orca.so/v2/solana/pools?sortBy=volume&sortDirection=desc&minTvl=1000&size=1000";
+    "https://api.orca.so/v2/solana/pools?sortBy=volume&sortDirection=desc&size=1000";
 
 #[serde_as]
 #[derive(Debug, Deserialize)]
-pub struct TokenDto {
+struct TokenDto {
     #[serde_as(as = "DisplayFromStr")]
-    pub address: Pubkey,
-    pub decimals: u8,
-    pub symbol: Option<String>,
+    address: Pubkey,
+    decimals: u8,
+    symbol: Option<String>,
 }
 
 #[serde_as]
 #[derive(Debug, Deserialize)]
-pub struct PoolDto {
+struct PoolDto {
     #[serde_as(as = "DisplayFromStr")]
-    pub address: Pubkey,
+    address: Pubkey,
     #[serde(rename = "feeRate")]
-    pub fee: u32,
-    #[serde(rename = "protocolFeeRate")]
-    pub protocol_fee: u32,
+    fee: u32,
+    // #[serde(rename = "protocolFeeRate")]
+    // protocol_fee: u32,
     #[serde(rename = "tickSpacing")]
-    pub tick_spacing: u32,
+    tick_spacing: u32,
     #[serde(rename = "tokenA")]
-    pub token0: TokenDto,
+    token0: TokenDto,
     #[serde(rename = "tokenB")]
-    pub token1: TokenDto,
+    token1: TokenDto,
 }
 
 #[derive(Debug, Deserialize)]
 struct PoolsResponseCursor {
-    pub next: Option<String>,
-    pub previous: Option<String>,
+    next: Option<String>,
+    // previous: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,12 +51,16 @@ struct PoolsResponseMeta {
 
 #[derive(Debug, Deserialize)]
 struct PoolsResponse {
-    pub data: Vec<PoolDto>,
-    pub meta: PoolsResponseMeta,
+    data: Vec<PoolDto>,
+    meta: PoolsResponseMeta,
 }
 
-async fn get_pools_rec(next: String, mut pools: Vec<PoolDto>) -> Result<Vec<PoolDto>> {
-    let url = format!("{}&next={}", WHIRPOOLS_API_URL, next);
+async fn get_pools_rec(
+    next: String,
+    min_value: i32,
+    mut pools: Vec<PoolDto>,
+) -> Result<Vec<PoolDto>> {
+    let url = format!("{}&minTvl={}&next={}", WHIRPOOLS_API_URL, min_value, next);
     println!("{}", url);
     let response = reqwest::get(&url)
         .await?
@@ -62,13 +71,29 @@ async fn get_pools_rec(next: String, mut pools: Vec<PoolDto>) -> Result<Vec<Pool
     println!("{}, {:?}", response.data.len(), response.meta.cursor);
     pools.extend(response.data);
     match response.meta.cursor.next {
-        Some(next) => Box::pin(get_pools_rec(next, pools)).await,
+        Some(next) => Box::pin(get_pools_rec(next, min_value, pools)).await,
         None => Ok(pools),
     }
 }
 
-pub async fn get_pools() -> Result<Vec<PoolDto>> {
-    // println!("body = {body:?}");
-    let pools = Vec::new();
-    get_pools_rec(String::new(), pools).await
+pub async fn get_pools(min_value: i32) -> Result<Vec<Pool>> {
+    let pools = get_pools_rec(String::new(), min_value, Vec::new()).await?;
+    Ok(pools
+        .into_iter()
+        .map(|dto| Pool {
+            address: PoolAddress(dto.address),
+            token0: Token {
+                address: TokenAddress(dto.token0.address),
+                decimals: dto.token0.decimals,
+                symbol: dto.token0.symbol,
+            },
+            token1: Token {
+                address: TokenAddress(dto.token1.address),
+                decimals: dto.token1.decimals,
+                symbol: dto.token1.symbol,
+            },
+            fee: Fee(dto.fee),
+            tick_spacing: dto.tick_spacing,
+        })
+        .collect())
 }

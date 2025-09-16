@@ -98,6 +98,19 @@ impl TokenAdjacency<TokensConnectionType> for chainlink::bridges::Bridge {
     }
 }
 
+impl TokenAdjacency<TokensConnectionType> for solana::orca::Pool {
+    fn adjacent_tokens(&self) -> AdjacentTokens {
+        AdjacentTokens::Undirected(
+            TokenId::Solana(self.token0.address),
+            TokenId::Solana(self.token1.address),
+        )
+    }
+
+    fn id(&self) -> TokensConnectionType {
+        TokensConnectionType::Swap(PoolId::Orca(self.address))
+    }
+}
+
 const MIN_VALUE: Decimal = dec!(1000.0);
 
 const EVM_BLOCKCHAINS: [evm::Blockchain; 3] = [
@@ -117,6 +130,13 @@ async fn with_evm_blockchain_pools(
         .with_adjacent_tokens(&evm::pancakeswap::v3::get_pools(blockchain, MIN_VALUE).await?))
 }
 
+async fn with_solana_blockchain_pools(
+    graph: DexGraph<TokensConnectionType>,
+) -> Result<DexGraph<TokensConnectionType>> {
+    Ok(graph
+        .with_adjacent_tokens(&solana::orca::get_pools(MIN_VALUE.round().mantissa() as i32).await?))
+}
+
 pub async fn collect_pools() -> Result<()> {
     let mut tokens_graph: DexGraph<TokensConnectionType> = DexGraph::new();
 
@@ -124,6 +144,7 @@ pub async fn collect_pools() -> Result<()> {
         tokens_graph = with_evm_blockchain_pools(blockchain, tokens_graph).await?;
     }
 
+    tokens_graph = with_solana_blockchain_pools(tokens_graph).await?;
     // tokens_graph = tokens_graph
     // .with_adjacent_tokens(&evm::chainlink::bridges::get_bridges(&EVM_BLOCKCHAINS).await?);
     // tokens_graph = tokens_graph.with_dead_end_tokens_removed();

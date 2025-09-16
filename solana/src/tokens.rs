@@ -1,5 +1,6 @@
 use solana_sdk::pubkey::Pubkey;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TokenAddress(pub(crate) Pubkey);
 
 pub struct Token {

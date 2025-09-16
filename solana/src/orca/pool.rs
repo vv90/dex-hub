@@ -5,7 +5,7 @@ use crate::tokens::Token;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PoolAddress(pub(crate) Pubkey);
 
-pub struct Fee(u32);
+pub struct Fee(pub u32);
 
 pub struct Pool {
     pub address: PoolAddress,
