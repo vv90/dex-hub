@@ -1,6 +1,9 @@
+use alloy::{
+    primitives::{Address, address},
+    sol_types::SolValue,
+};
+use anyhow::{Result, anyhow};
 use std::sync::LazyLock;
-
-use alloy::primitives::{Address, address};
 
 use crate::blockchain::Blockchain;
 
@@ -10,6 +13,13 @@ pub struct TokenAddress(pub(crate) Address, pub Blockchain);
 impl TokenAddress {
     pub fn blockchain(&self) -> Blockchain {
         self.1
+    }
+
+    pub fn decode_from_bytes(bytes: bytes::Bytes, blockchain: Blockchain) -> Result<Self> {
+        let address = Address::abi_decode(&bytes)
+            .map_err(|e| anyhow!("Failed to decode token address: {}", e))?;
+
+        Ok(TokenAddress(address, blockchain))
     }
 }
 

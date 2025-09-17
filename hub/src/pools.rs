@@ -2,11 +2,8 @@ use crate::{
     graph::{AdjacentTokens, DexGraph, TokenAdjacency},
     tokens::TokenId,
 };
-use anyhow::Result;
-use evm::{
-    Blockchain,
-    chainlink::{self, bridges::Bridge},
-};
+use anyhow::{Result, anyhow};
+use evm::Blockchain;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
@@ -27,10 +24,52 @@ pub enum Pool {
     Orca(solana::orca::Pool),
 }
 
+pub enum Bridge {
+    Evm(evm::chainlink::bridges::BridgeSource, TokenId),
+    // Solana(SolanaBridge),
+}
+
+impl TryFrom<evm::chainlink::bridges::Bridge> for Bridge {
+    type Error = anyhow::Error;
+
+    fn try_from(value: evm::chainlink::bridges::Bridge) -> std::result::Result<Self, Self::Error> {
+        let target = decode_bridge_target(value.target)?;
+        Ok(Bridge::Evm(value.source, target))
+    }
+}
+
+fn decode_bridge_target(bridge_target: evm::chainlink::bridges::BridgeTarget) -> Result<TokenId> {
+    match bridge_target.chain_selector {
+        evm::chainlink::chain_selector::ETHEREUM_CHAIN_SELECTOR => {
+            evm::tokens::TokenAddress::decode_from_bytes(
+                bridge_target.remote_token,
+                evm::Blockchain::Ethereum,
+            )
+            .map(|token_address| TokenId::Evm(token_address))
+        }
+        evm::chainlink::chain_selector::BSC_CHAIN_SELECTOR => {
+            evm::tokens::TokenAddress::decode_from_bytes(
+                bridge_target.remote_token,
+                evm::Blockchain::BSC,
+            )
+            .map(|token_address| TokenId::Evm(token_address))
+        }
+        evm::chainlink::chain_selector::ARBITRUM_CHAIN_SELECTOR => {
+            evm::tokens::TokenAddress::decode_from_bytes(
+                bridge_target.remote_token,
+                evm::Blockchain::Arbitrum,
+            )
+            .map(|token_address| TokenId::Evm(token_address))
+        }
+        // TODO: SOLANA
+        other => Err(anyhow!("unknown chain selector: {:?}", other)),
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TokensConnectionType {
     Swap(PoolId),
-    Bridge(chainlink::pool::PoolAddress),
+    Bridge(evm::chainlink::pool::PoolAddress),
 }
 
 impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v2::Pool {
@@ -85,16 +124,19 @@ impl TokenAdjacency<TokensConnectionType> for evm::pancakeswap::v3::Pool {
     }
 }
 
-impl TokenAdjacency<TokensConnectionType> for chainlink::bridges::Bridge {
+impl TokenAdjacency<TokensConnectionType> for Bridge {
     fn adjacent_tokens(&self) -> AdjacentTokens {
-        AdjacentTokens::Directed(
-            TokenId::Evm(self.local_token()),
-            TokenId::Evm(self.remote_token()),
-        )
+        match self {
+            Bridge::Evm(source, target) => {
+                AdjacentTokens::Directed(TokenId::Evm(source.local_token()), *target)
+            }
+        }
     }
 
     fn id(&self) -> TokensConnectionType {
-        TokensConnectionType::Bridge(self.pool_address())
+        match self {
+            Bridge::Evm(source, _) => TokensConnectionType::Bridge(source.bridge_address()),
+        }
     }
 }
 
@@ -117,6 +159,12 @@ const EVM_BLOCKCHAINS: [evm::Blockchain; 3] = [
     evm::Blockchain::Ethereum,
     evm::Blockchain::BSC,
     evm::Blockchain::Arbitrum,
+];
+
+const REMOTE_CHAIN_SELECTORS: [evm::chainlink::chain_selector::ChainSelector; 3] = [
+    evm::chainlink::chain_selector::ETHEREUM_CHAIN_SELECTOR,
+    evm::chainlink::chain_selector::BSC_CHAIN_SELECTOR,
+    evm::chainlink::chain_selector::ARBITRUM_CHAIN_SELECTOR,
 ];
 
 async fn with_evm_blockchain_pools(
@@ -145,8 +193,15 @@ pub async fn collect_pools() -> Result<()> {
     }
 
     tokens_graph = with_solana_blockchain_pools(tokens_graph).await?;
-    // tokens_graph = tokens_graph
-    // .with_adjacent_tokens(&evm::chainlink::bridges::get_bridges(&EVM_BLOCKCHAINS).await?);
+
+    let bridges =
+        evm::chainlink::bridges::get_bridges(&EVM_BLOCKCHAINS, &REMOTE_CHAIN_SELECTORS).await?;
+    let bridges = bridges
+        .into_iter()
+        .map(|bridge| bridge.try_into())
+        .collect::<Result<Vec<Bridge>>>()?;
+
+    tokens_graph = tokens_graph.with_adjacent_tokens(&bridges);
     // tokens_graph = tokens_graph.with_dead_end_tokens_removed();
 
     println!("Graph size: {}", tokens_graph.tokens_count());

@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 alloy = { version = "1.0.30", features = ["full"] }
 anyhow = { version = "1.0.99" }
+bytes = "1.10.1"
 futures-util = "0.3"
 reqwest = "0.12.23"
 rust_decimal = { version = "1.37.2", features = ["maths"] }

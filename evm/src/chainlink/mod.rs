@@ -1,5 +1,5 @@
 pub mod bridges;
-mod chain_selector;
+pub mod chain_selector;
 mod contract;
 mod get_configured_tokens_call_data;
 mod get_pools_call_data;
