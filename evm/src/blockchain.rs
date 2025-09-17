@@ -11,9 +11,6 @@ pub enum Blockchain {
     Arbitrum,
 }
 
-pub const ALL_BLOCKCHAINS: [Blockchain; 3] =
-    [Blockchain::Ethereum, Blockchain::BSC, Blockchain::Arbitrum];
-
 impl Blockchain {
     pub const fn name(&self) -> &'static str {
         match self {

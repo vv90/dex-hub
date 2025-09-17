@@ -1,5 +1,3 @@
-use crate::{evm_network::Ethereum, rpc::client::init_client};
-
 mod blockchain;
 mod evm_network;
 mod multicall;
@@ -7,7 +5,6 @@ mod multicall;
 #[path = "pancakeswap/mod.rs"]
 mod pancakeswap_internal;
 
-mod pool_id;
 mod reserves;
 mod rpc;
 mod subgraph;
@@ -20,9 +17,6 @@ mod virtual_reserves;
 
 pub mod chainlink;
 pub mod tokens;
-
-use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
 
 // pub const BLACKLIST: LazyLock<HashSet<TokenAddress>> = tokens::BLACKLIST;
 

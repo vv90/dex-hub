@@ -109,101 +109,11 @@ pub struct SubgraphQueryParams {
     pub min_value: Decimal,
 }
 
-// pub trait SubgraphQuery<T> {
-//     type Response: DeserializeOwned;
-
-//     fn format_query(params: SubgraphQueryParams) -> String;
-//     fn map_pools(response: Self::Response) -> Vec<T>;
-// }
-
-// pub struct SubgraphQuery {
-//     query_string: String,
-// }
-
 pub struct SubgraphConfig<D: DeserializeOwned, T> {
     pub subgraph_url: &'static str,
     pub subgraph_name: &'static str,
     pub format_query: fn(SubgraphQueryParams) -> String,
     pub map_pools: fn(D) -> Vec<T>,
-}
-
-// impl SubgraphConfig {
-//     async fn get_pools<D: DeserializeOwned, T>(&self, min_value: Decimal) -> Result<Vec<T>> {
-//         let cache_path = format!(
-//             "{}/{}",
-//             env!("SUBGRAPH_RESPONSE_CACHE_PATH"),
-//             self.subgraph_name
-//         );
-
-//         let limit = 1000;
-
-//         let mut all_pools = Vec::<T>::new();
-//         let mut skip = 0;
-
-//         loop {
-//             let params = SubgraphQueryParams {
-//                 limit,
-//                 skip,
-//                 min_value,
-//             };
-//             let query = format_query(params);
-
-//             let pools_data =
-//                 query_subgraph::<D>(self.subgraph_url, self.query, &cache_path).await?;
-
-//             let pools = map_pools(pools_data);
-
-//             let items_loaded = pools.len();
-//             if items_loaded == 0 {
-//                 break; // No more pools to load
-//             } else {
-//                 all_pools.extend(pools);
-//                 // println!("Loaded {} pools", pools_heap.len());
-//                 skip += items_loaded as u32;
-//             }
-//         }
-
-//         Ok(all_pools)
-//     }
-// }
-
-pub async fn get_pools<D: DeserializeOwned, T>(
-    url: &str,
-    subgraph_name: &str,
-    min_value: Decimal,
-    format_query: impl Fn(SubgraphQueryParams) -> String,
-    map_pools: impl Fn(D) -> Vec<T>,
-) -> Result<Vec<T>> {
-    let cache_path = format!("{}/{}", env!("SUBGRAPH_RESPONSE_CACHE_PATH"), subgraph_name);
-
-    let limit = 1000;
-
-    let mut all_pools = Vec::<T>::new();
-    let mut skip = 0;
-
-    loop {
-        let params = SubgraphQueryParams {
-            limit,
-            skip,
-            min_value,
-        };
-        let query = format_query(params);
-
-        let pools_data = query_subgraph::<D>(url, &query, &cache_path).await?;
-
-        let pools = map_pools(pools_data);
-
-        let items_loaded = pools.len();
-        if items_loaded == 0 {
-            break; // No more pools to load
-        } else {
-            all_pools.extend(pools);
-            // println!("Loaded {} pools", pools_heap.len());
-            skip += items_loaded as u32;
-        }
-    }
-
-    Ok(all_pools)
 }
 
 impl<D: DeserializeOwned, T> SubgraphConfig<D, T> {

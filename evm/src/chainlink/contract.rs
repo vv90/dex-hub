@@ -5,13 +5,13 @@ use alloy::{
 
 use crate::blockchain::Blockchain;
 
-pub const fn router_address(blockchain: Blockchain) -> Address {
-    match blockchain {
-        Blockchain::Ethereum => address!("0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D"),
-        Blockchain::BSC => address!("0x34B03Cb9086d7D758AC55af71584F81A598759FE"),
-        Blockchain::Arbitrum => address!("0x141fa059441E0ca23ce184B6A78bafD2A517DdE8"),
-    }
-}
+// pub const fn router_address(blockchain: Blockchain) -> Address {
+//     match blockchain {
+//         Blockchain::Ethereum => address!("0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D"),
+//         Blockchain::BSC => address!("0x34B03Cb9086d7D758AC55af71584F81A598759FE"),
+//         Blockchain::Arbitrum => address!("0x141fa059441E0ca23ce184B6A78bafD2A517DdE8"),
+//     }
+// }
 
 pub const fn token_admin_registry_address(blockchain: Blockchain) -> Address {
     match blockchain {

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use petgraph::{algo::kosaraju_scc, prelude::*};
 
-use crate::tokens::TokenId;
+use crate::tokens::{BLACKLIST, TokenId};
 
 pub enum AdjacentTokens {
     Directed(TokenId, TokenId),
@@ -12,6 +12,17 @@ pub enum AdjacentTokens {
 pub trait TokenAdjacency<T> {
     fn adjacent_tokens(&self) -> AdjacentTokens;
     fn id(&self) -> T;
+}
+
+fn tokens_not_blacklisted(tokens: AdjacentTokens) -> bool {
+    match tokens {
+        AdjacentTokens::Directed(token0, token1) => {
+            !BLACKLIST.contains(&token0) && !BLACKLIST.contains(&token1)
+        }
+        AdjacentTokens::Undirected(token0, token1) => {
+            !BLACKLIST.contains(&token0) && !BLACKLIST.contains(&token1)
+        }
+    }
 }
 
 // since GraphMap does not allow parallel edges,
@@ -50,6 +61,7 @@ impl<T: Eq + std::hash::Hash> DexGraph<T> {
     pub fn with_adjacent_tokens<A: TokenAdjacency<T>>(self, adjacencies: &[A]) -> Self {
         adjacencies
             .iter()
+            .filter(|a| tokens_not_blacklisted(a.adjacent_tokens()))
             .fold(self, |graph, adjacency| graph.with_adjacency(adjacency))
     }
 
