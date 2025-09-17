@@ -5,19 +5,19 @@ use anyhow::{Result, anyhow};
 
 use crate::{
     blockchain::BlockchainNetwork,
-    chainlink::{chain_selector::ChainSelector, contract, pool::PoolAddress},
+    chainlink::{contract, pool::PoolAddress},
     multicall,
     rpc::multicall_data::MulticallData,
 };
 
 pub struct RemoteTokensMulticallData<B: BlockchainNetwork> {
     pool_address: PoolAddress,
-    remote_chain_selector: ChainSelector,
+    remote_chain_selector: u64,
     blockchain_marker: PhantomData<B>,
 }
 
 impl<B: BlockchainNetwork> RemoteTokensMulticallData<B> {
-    pub fn new(pool_address: PoolAddress, remote_chain_selector: ChainSelector) -> Self {
+    pub fn new(pool_address: PoolAddress, remote_chain_selector: u64) -> Self {
         Self {
             pool_address,
             remote_chain_selector,
@@ -29,12 +29,11 @@ impl<B: BlockchainNetwork> RemoteTokensMulticallData<B> {
 impl<B: BlockchainNetwork> MulticallData<B> for RemoteTokensMulticallData<B> {
     const SIZE: usize = 1;
     type Calls = [multicall::Multicall3::Call; 1];
-    type Output = Option<(ChainSelector, bytes::Bytes)>;
+    type Output = Option<(u64, bytes::Bytes)>;
 
     fn to_calls(&self) -> Self::Calls {
-        let ChainSelector(chain_selector) = self.remote_chain_selector;
         let remote_token_call = contract::TokenPool::getRemoteTokenCall {
-            remoteChainSelector: chain_selector,
+            remoteChainSelector: self.remote_chain_selector,
         };
 
         [multicall::Multicall3::Call {

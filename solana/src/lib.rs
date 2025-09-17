@@ -2,6 +2,7 @@
 mod orca_internal;
 mod reserves;
 
+pub mod chainlink;
 pub mod tokens;
 
 pub mod orca {

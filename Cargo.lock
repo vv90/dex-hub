@@ -5625,6 +5625,7 @@ dependencies = [
  "anchor-client",
  "anyhow",
  "borsh 1.5.7",
+ "bytes",
  "reqwest",
  "rust_decimal",
  "rust_decimal_macros",

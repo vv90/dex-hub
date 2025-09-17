@@ -8,10 +8,9 @@ use crate::{
     Blockchain,
     blockchain::{BlockNumber, BlockchainNetwork},
     chainlink::{
-        chain_selector::{ChainSelector, chain_selector},
+        chain_selector::chain_selector,
         get_configured_tokens_call_data::GetConfiguredTokensCallData,
-        get_pools_call_data::GetPoolsCallData,
-        pool::PoolAddress,
+        get_pools_call_data::GetPoolsCallData, pool::PoolAddress,
         remote_tokens_multicall_data::RemoteTokensMulticallData,
     },
     evm_network,
@@ -38,7 +37,7 @@ impl BridgeSource {
 
 #[derive(Debug, Clone)]
 pub struct BridgeTarget {
-    pub chain_selector: ChainSelector,
+    pub chain_selector: u64,
     pub remote_token: bytes::Bytes,
 }
 
@@ -69,7 +68,7 @@ async fn get_bridges_recursive<B: BlockchainNetwork, P: Provider<B>>(
     rpc_client: &RpcClient<B, P>,
     call_data: GetConfiguredTokensCallData<B>,
     // blockchains: &[Blockchain],
-    chain_selectors: &[ChainSelector],
+    chain_selectors: &[u64],
     block_number: BlockNumber<B>,
     mut bridges: Vec<Bridge>,
 ) -> Result<Vec<Bridge>> {
@@ -160,7 +159,7 @@ async fn get_bridges_recursive<B: BlockchainNetwork, P: Provider<B>>(
 pub async fn get_bridges_for_blockchain<B: BlockchainNetwork + RecommendedFillers>(
     // blockchain: Blockchain,
     // blockchains: &[Blockchain],
-    chain_selectors: &[ChainSelector],
+    chain_selectors: &[u64],
 ) -> Result<Vec<Bridge>> {
     let rpc_client = rpc::client::init_client::<B>().await?;
     let block_number = rpc_client.get_block_number().await?;
@@ -177,7 +176,7 @@ pub async fn get_bridges_for_blockchain<B: BlockchainNetwork + RecommendedFiller
 
 pub async fn get_bridges(
     local_blockchains: &[Blockchain],
-    remote_chain_selectors: &[ChainSelector],
+    remote_chain_selectors: &[u64],
 ) -> Result<Vec<Bridge>> {
     let mut aggregated_bridges = Vec::new();
 
@@ -193,6 +192,22 @@ pub async fn get_bridges(
                 get_bridges_for_blockchain::<evm_network::Arbitrum>(remote_chain_selectors).await?
             }
         };
+
+        for remote_chain in remote_chain_selectors
+            .iter()
+            .filter(|&&cs| cs != chain_selector(*blockchain))
+        {
+            println!(
+                "{} -> {}: {}",
+                blockchain,
+                remote_chain,
+                blockchain_bridges
+                    .iter()
+                    .filter(|bridge| bridge.target.chain_selector == *remote_chain)
+                    .count()
+            );
+        }
+
         aggregated_bridges.extend(blockchain_bridges);
     }
 

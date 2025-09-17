@@ -29,6 +29,30 @@ pub enum Bridge {
     // Solana(SolanaBridge),
 }
 
+// impl From<solana::chainlink::chain_selector::ChainSelector> for ChainSelector {
+//     fn from(value: solana::chainlink::chain_selector::ChainSelector) -> Self {
+//         ChainSelector(value.0)
+//     }
+// }
+
+// impl From<evm::chainlink::chain_selector::ChainSelector> for ChainSelector {
+//     fn from(value: evm::chainlink::chain_selector::ChainSelector) -> Self {
+//         ChainSelector(value.0)
+//     }
+// }
+
+// impl Into<evm::chainlink::chain_selector::ChainSelector> for ChainSelector {
+//     fn into(self) -> evm::chainlink::chain_selector::ChainSelector {
+//         evm::chainlink::chain_selector::ChainSelector(self.0)
+//     }
+// }
+
+// impl Into<solana::chainlink::chain_selector::ChainSelector> for ChainSelector {
+//     fn into(self) -> solana::chainlink::chain_selector::ChainSelector {
+//         solana::chainlink::chain_selector::ChainSelector(self.0)
+//     }
+// }
+
 impl TryFrom<evm::chainlink::bridges::Bridge> for Bridge {
     type Error = anyhow::Error;
 
@@ -60,6 +84,10 @@ fn decode_bridge_target(bridge_target: evm::chainlink::bridges::BridgeTarget) ->
                 evm::Blockchain::Arbitrum,
             )
             .map(|token_address| TokenId::Evm(token_address))
+        }
+        solana::chainlink::chain_selector::SOLANA_CHAIN_SELECTOR => {
+            solana::tokens::TokenAddress::decode_from_bytes(bridge_target.remote_token)
+                .map(|token_address| TokenId::Solana(token_address))
         }
         // TODO: SOLANA
         other => Err(anyhow!("unknown chain selector: {:?}", other)),
@@ -161,10 +189,11 @@ const EVM_BLOCKCHAINS: [evm::Blockchain; 3] = [
     evm::Blockchain::Arbitrum,
 ];
 
-const REMOTE_CHAIN_SELECTORS: [evm::chainlink::chain_selector::ChainSelector; 3] = [
+const REMOTE_CHAIN_SELECTORS: [u64; 4] = [
     evm::chainlink::chain_selector::ETHEREUM_CHAIN_SELECTOR,
     evm::chainlink::chain_selector::BSC_CHAIN_SELECTOR,
     evm::chainlink::chain_selector::ARBITRUM_CHAIN_SELECTOR,
+    solana::chainlink::chain_selector::SOLANA_CHAIN_SELECTOR,
 ];
 
 async fn with_evm_blockchain_pools(
