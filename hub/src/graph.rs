@@ -128,8 +128,10 @@ impl<T: Eq + std::hash::Hash> DexGraph<T> {
         }
     }
 
-    // removes all sink/source nodes and dead-ends (single incoming and outgoing connection using the same adjacency id)
-    pub fn pruned(self) -> Self {
+    // removes all sink/source nodes, dead-ends (single incoming and outgoing connection using the same adjacency id)
+    // and nodes not reachable from the starting token
+    // TODO: can be optimized by revisiting only neighbors of the pruned nodes on each iteration
+    pub fn pruned(self, starting_token: TokenId) -> Self {
         let mut current_graph = self;
         loop {
             let (pruned_graph, pruned_count) = current_graph
@@ -143,7 +145,21 @@ impl<T: Eq + std::hash::Hash> DexGraph<T> {
                 break;
             }
         }
+
         current_graph
+            .components()
+            .into_iter()
+            .fold(current_graph, |graph, c| {
+                let component_contains_starting_token = c.iter().any(|t| *t == starting_token);
+
+                if component_contains_starting_token {
+                    graph
+                } else {
+                    c.into_iter()
+                        .fold((graph, vec![]), |(g, _), t| g.with_node_removed(t))
+                        .0
+                }
+            })
     }
 
     pub fn components(&self) -> Vec<Vec<TokenId>> {

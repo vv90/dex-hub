@@ -189,11 +189,11 @@ const EVM_BLOCKCHAINS: [evm::Blockchain; 3] = [
     evm::Blockchain::Arbitrum,
 ];
 
-const REMOTE_CHAIN_SELECTORS: [u64; 4] = [
+const REMOTE_CHAIN_SELECTORS: [u64; 3] = [
     evm::chainlink::chain_selector::ETHEREUM_CHAIN_SELECTOR,
     evm::chainlink::chain_selector::BSC_CHAIN_SELECTOR,
     evm::chainlink::chain_selector::ARBITRUM_CHAIN_SELECTOR,
-    solana::chainlink::chain_selector::SOLANA_CHAIN_SELECTOR,
+    // solana::chainlink::chain_selector::SOLANA_CHAIN_SELECTOR,
 ];
 
 async fn with_evm_blockchain_pools(
@@ -207,12 +207,12 @@ async fn with_evm_blockchain_pools(
         .with_adjacent_tokens(&evm::pancakeswap::v3::get_pools(blockchain, MIN_VALUE).await?))
 }
 
-async fn with_solana_blockchain_pools(
-    graph: DexGraph<TokensConnectionType>,
-) -> Result<DexGraph<TokensConnectionType>> {
-    Ok(graph
-        .with_adjacent_tokens(&solana::orca::get_pools(MIN_VALUE.round().mantissa() as i32).await?))
-}
+// async fn with_solana_blockchain_pools(
+//     graph: DexGraph<TokensConnectionType>,
+// ) -> Result<DexGraph<TokensConnectionType>> {
+//     Ok(graph
+//         .with_adjacent_tokens(&solana::orca::get_pools(MIN_VALUE.round().mantissa() as i32).await?))
+// }
 
 pub async fn collect_pools() -> Result<()> {
     let mut tokens_graph: DexGraph<TokensConnectionType> = DexGraph::new();
@@ -221,7 +221,7 @@ pub async fn collect_pools() -> Result<()> {
         tokens_graph = with_evm_blockchain_pools(blockchain, tokens_graph).await?;
     }
 
-    tokens_graph = with_solana_blockchain_pools(tokens_graph).await?;
+    // tokens_graph = with_solana_blockchain_pools(tokens_graph).await?;
 
     let bridges =
         evm::chainlink::bridges::get_bridges(&EVM_BLOCKCHAINS, &REMOTE_CHAIN_SELECTORS).await?;
@@ -243,17 +243,9 @@ pub async fn collect_pools() -> Result<()> {
             .collect::<Vec<_>>()
     );
 
-    tokens_graph = tokens_graph.pruned();
+    tokens_graph = tokens_graph.pruned(TokenId::Evm(evm::tokens::ethereum::USDC.address));
 
     println!("Graph size after pruning: {}", tokens_graph.tokens_count());
-    println!(
-        "Graph components after pruning: {:?}",
-        tokens_graph
-            .components()
-            .iter()
-            .map(|component| component.len())
-            .collect::<Vec<_>>()
-    );
 
     Ok(())
 }
