@@ -27,10 +27,12 @@ impl<B: BlockchainNetwork> RemoteTokensMulticallData<B> {
 }
 
 impl<B: BlockchainNetwork> MulticallData<B> for RemoteTokensMulticallData<B> {
-    const SIZE: usize = 1;
+    
     type Calls = [multicall::Multicall3::Call; 1];
     type Output = Option<(u64, bytes::Bytes)>;
 
+    fn size(&self) -> usize {1} 
+    
     fn to_calls(&self) -> Self::Calls {
         let remote_token_call = contract::TokenPool::getRemoteTokenCall {
             remoteChainSelector: self.remote_chain_selector,

@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::{blockchain::BlockchainNetwork, rpc::call_data::CallData, uniswap_internal::v3::contract};
+use crate::{
+    blockchain::BlockchainNetwork, rpc::call_data::CallData, uniswap_internal::v3::contract,
+};
 use alloy::{
     primitives::{Address, Bytes},
     sol_types::SolCall,
@@ -22,20 +24,20 @@ impl<B: BlockchainNetwork> PoolStateCallData<B> {
 }
 
 impl<B: BlockchainNetwork> CallData<B> for PoolStateCallData<B> {
-    type Output = contract::slot0Return;
+    type Output = contract::Pool::slot0Return;
 
     fn contract_address(&self) -> Address {
         self.pool_address
     }
 
     fn into_call_data(&self) -> Bytes {
-        let call = contract::slot0Call {};
+        let call = contract::Pool::slot0Call {};
 
         call.abi_encode().into()
     }
 
     fn decode_call_output(&self, response: Bytes) -> Result<Self::Output> {
-        let output = contract::slot0Call::abi_decode_returns(&response)?;
+        let output = contract::Pool::slot0Call::abi_decode_returns(&response)?;
         Ok(output)
     }
 }

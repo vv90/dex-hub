@@ -176,4 +176,14 @@ impl<T: Eq + std::hash::Hash> DexGraph<T> {
         let DexGraph(graph) = self;
         graph.nodes().collect()
     }
+
+    pub fn adjacency_ids(&self) -> HashSet<&T> {
+        let DexGraph(graph) = self;
+        graph
+            .all_edges()
+            .fold(HashSet::new(), |mut set, (_, _, ids)| {
+                set.extend(ids.iter());
+                set
+            })
+    }
 }

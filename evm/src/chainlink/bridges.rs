@@ -13,8 +13,8 @@ use crate::{
         get_pools_call_data::GetPoolsCallData, pool::PoolAddress,
         remote_tokens_multicall_data::RemoteTokensMulticallData,
     },
-    evm_network,
-    rpc::{self, client::RpcClient},
+    evm_network, multicall,
+    rpc::{self, client::RpcClient, multicall_data::MulticallData},
     tokens::TokenAddress,
 };
 
@@ -83,7 +83,7 @@ async fn get_bridges_recursive<B: BlockchainNetwork, P: Provider<B>>(
         .filter(|&cs| cs != chain_selector(B::BLOCKCHAIN))
         .collect::<Vec<_>>();
 
-    let remote_tokens_calls_data = new_token_pools
+    let remote_tokens_calls_data: Vec<_> = new_token_pools
         .iter()
         .filter_map(|p| p.as_ref())
         .flat_map(|p| {
@@ -91,9 +91,10 @@ async fn get_bridges_recursive<B: BlockchainNetwork, P: Provider<B>>(
                 .iter()
                 .map(|&cs| RemoteTokensMulticallData::new(*p, cs))
         })
-        .collect::<Vec<_>>();
+        .collect();
+
     let new_remote_tokens = rpc_client
-        .get_multicall(&remote_tokens_calls_data, block_number)
+        .get_multicall(remote_tokens_calls_data.as_slice(), block_number)
         .await?
         .into_iter()
         .collect::<Result<Vec<_>>>()?;

@@ -1,59 +1,84 @@
 use alloy::{
-    primitives::{Address, address},
+    primitives::{Address, FixedBytes, address, fixed_bytes},
     sol,
 };
-
-// pub const SWAP_TOPIC: FixedBytes<32> =
-//     fixed_bytes!("0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67");
-
-// pub const MINT_TOPIC: FixedBytes<32> =
-//     fixed_bytes!("0x7a53080ba414158be7ec69b987b5fb7d07dee101fe85488f0853ae16239d0bde");
-
-// pub const BURN_TOPIC: FixedBytes<32> =
-//     fixed_bytes!("0x0c396cd989a39f4459b5fa1aed6a9a8dcdbc45908acfd67e028cd568da98982c");
 
 // pub const SWAP_ROUTER_ADDRESS: Address = address!("0xE592427A0AEce92De3Edee1F18E0157C05861564");
 // TODO: replace with static function fn blockchain -> Address
 pub const SWAP_ROUTER2_ADDRESS: Address = address!("0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45");
 
-sol! (
-    #[derive(Debug, PartialEq, Eq)]
-    function slot0()
-        external
-        view
-        returns (
-            uint160 sqrtPriceX96,
-            int24 tick,
-            uint16 observationIndex,
-            uint16 observationCardinality,
-            uint16 observationCardinalityNext,
-            uint8 feeProtocol,
-            bool unlocked
-        );
-);
-
 sol! {
-    function ticks(int24 tick)
-        external
-        view
-        returns (
-            uint128 liquidityGross,
-            int128 liquidityNet,
-            uint256 feeGrowthOutside0X128,
-            uint256 feeGrowthOutside1X128,
-            int56 tickCumulativeOutside,
-            uint160 secondsPerLiquidityOutsideX128,
-            uint32 secondsOutside,
-            bool initialized
+    contract Pool {
+        event Mint(
+            address sender,
+            address owner,
+            int24 tickLower,
+            int24 tickUpper,
+            uint128 amount,
+            uint256 amount0,
+            uint256 amount1
         );
+
+        event Burn(
+            address owner,
+            int24 tickLower,
+            int24 tickUpper,
+            uint128 amount,
+            uint256 amount0,
+            uint256 amount1
+        );
+
+        event Swap(
+            address sender,
+            address recipient,
+            int256 amount0,
+            int256 amount1,
+            uint160 sqrtPriceX96,
+            uint128 liquidity,
+            int24 tick
+        );
+
+        function slot0()
+            external
+            view
+            returns (
+                uint160 sqrtPriceX96,
+                int24 tick,
+                uint16 observationIndex,
+                uint16 observationCardinality,
+                uint16 observationCardinalityNext,
+                uint8 feeProtocol,
+                bool unlocked
+            );
+
+        function ticks(int24 tick)
+            external
+            view
+            returns (
+                uint128 liquidityGross,
+                int128 liquidityNet,
+                uint256 feeGrowthOutside0X128,
+                uint256 feeGrowthOutside1X128,
+                int56 tickCumulativeOutside,
+                uint160 secondsPerLiquidityOutsideX128,
+                uint32 secondsOutside,
+                bool initialized
+            );
+
+        function liquidity() external view returns (uint128);
+        function fee() external view returns (uint24);
+        function tickBitmap(int16 wordPosition) external view returns (uint256);
+    }
 }
 
 sol! {
-    function getPool(
-        address token0,
-        address token1,
-        uint24 fee
-    ) external view returns (address pool);
+    contract Factory {
+        function getPool(
+            address token0,
+            address token1,
+            uint24 fee
+        ) external view returns (address pool);
+    }
 }
 
 sol! {
@@ -64,17 +89,6 @@ sol! {
         uint256 amountIn,
         uint160 sqrtPriceLimitX96
     ) public returns (uint256 amountOut);
-}
-
-sol! {
-    function liquidity(
-    ) external view returns (uint128);
-}
-
-// The pool's fee in hundredths of a bip, i.e. 1e-6
-sol! {
-    function fee(
-    ) external view returns (uint24);
 }
 
 sol! {

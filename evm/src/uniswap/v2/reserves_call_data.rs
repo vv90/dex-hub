@@ -14,6 +14,7 @@ use crate::{
     tokens::{Token, TokenAddress},
     uniswap_internal::v2::{contract, pool::PoolAddress},
     utils::try_into_decimal,
+    virtual_reserves::VirtualReserves,
 };
 
 #[derive(Debug, Clone)]
@@ -44,12 +45,16 @@ impl<B: BlockchainNetwork> ReservesCallData<B> {
 }
 
 impl<B: BlockchainNetwork> MulticallData<B> for ReservesCallData<B> {
-    const SIZE: usize = 1;
     type Calls = [multicall::Multicall3::Call; 1];
-    type Output = Reserves<PoolAddress>;
+    // type Output = VirtualReserves<PoolAddress>;
+    type Output = VirtualReserves;
+
+    fn size(&self) -> usize {
+        1
+    }
 
     fn to_calls(&self) -> Self::Calls {
-        let reserves_call = contract::getReservesCall {};
+        let reserves_call = contract::Pair::getReservesCall {};
         let reserves_call_data = reserves_call.abi_encode();
         [multicall::Multicall3::Call {
             target: self.pool_address,
@@ -62,16 +67,18 @@ impl<B: BlockchainNetwork> MulticallData<B> for ReservesCallData<B> {
         if let Some(_) = response.get(1) {
             Err(anyhow!("Invalid response data size"))
         } else {
-            let reserves_output = contract::getReservesCall::abi_decode_returns(reserves_bytes)?;
+            let reserves_output =
+                contract::Pair::getReservesCall::abi_decode_returns(reserves_bytes)?;
 
             let reserve_0 = try_into_decimal(reserves_output.reserve0, self.token0_decimals)?;
             let reserve_1 = try_into_decimal(reserves_output.reserve1, self.token1_decimals)?;
 
             Ok(Reserves {
-                pool_id: PoolAddress(self.pool_address, B::BLOCKCHAIN),
+                // pool_id: PoolAddress(self.pool_address, B::BLOCKCHAIN),
                 token0: reserve_0,
                 token1: reserve_1,
-            })
+            }
+            .as_virtual_reserves())
         }
     }
 }

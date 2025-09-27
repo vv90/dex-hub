@@ -9,11 +9,8 @@ use rust_decimal_macros::dec;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PoolId {
-    UniswapV2(evm::uniswap::v2::PoolAddress),
-    UniswapV3(evm::uniswap::v3::PoolAddress),
-    UniswapV4(evm::uniswap::v4::PoolId),
-    PancakeSwapV3(evm::pancakeswap::v3::PoolAddress),
-    Orca(solana::orca::PoolAddress),
+    Evm(evm::PoolId),
+    Solana(solana::orca::PoolAddress),
 }
 
 // pub enum Pool {
@@ -109,7 +106,7 @@ impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v2::Pool {
     }
 
     fn id(&self) -> TokensConnectionType {
-        TokensConnectionType::Swap(PoolId::UniswapV2(self.address))
+        TokensConnectionType::Swap(PoolId::Evm(evm::PoolId::UniswapV2(self.address)))
     }
 }
 
@@ -122,7 +119,7 @@ impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v3::Pool {
     }
 
     fn id(&self) -> TokensConnectionType {
-        TokensConnectionType::Swap(PoolId::UniswapV3(self.address))
+        TokensConnectionType::Swap(PoolId::Evm(evm::PoolId::UniswapV3(self.address)))
     }
 }
 
@@ -135,7 +132,7 @@ impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v4::Pool {
     }
 
     fn id(&self) -> TokensConnectionType {
-        TokensConnectionType::Swap(PoolId::UniswapV4(self.pool_id))
+        TokensConnectionType::Swap(PoolId::Evm(evm::PoolId::UniswapV4(self.pool_id)))
     }
 }
 
@@ -148,7 +145,7 @@ impl TokenAdjacency<TokensConnectionType> for evm::pancakeswap::v3::Pool {
     }
 
     fn id(&self) -> TokensConnectionType {
-        TokensConnectionType::Swap(PoolId::PancakeSwapV3(self.address))
+        TokensConnectionType::Swap(PoolId::Evm(evm::PoolId::PancakeSwap(self.address)))
     }
 }
 
@@ -177,7 +174,7 @@ impl TokenAdjacency<TokensConnectionType> for solana::orca::Pool {
     }
 
     fn id(&self) -> TokensConnectionType {
-        TokensConnectionType::Swap(PoolId::Orca(self.address))
+        TokensConnectionType::Swap(PoolId::Solana(self.address))
     }
 }
 
@@ -214,7 +211,7 @@ async fn with_evm_blockchain_pools(
 //         .with_adjacent_tokens(&solana::orca::get_pools(MIN_VALUE.round().mantissa() as i32).await?))
 // }
 
-pub async fn collect_pools() -> Result<()> {
+pub async fn collect_pools() -> Result<DexGraph<TokensConnectionType>> {
     let mut tokens_graph: DexGraph<TokensConnectionType> = DexGraph::new();
 
     for blockchain in EVM_BLOCKCHAINS {
@@ -247,5 +244,5 @@ pub async fn collect_pools() -> Result<()> {
 
     println!("Graph size after pruning: {}", tokens_graph.tokens_count());
 
-    Ok(())
+    Ok(tokens_graph)
 }

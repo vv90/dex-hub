@@ -1,9 +1,13 @@
-use std::marker::PhantomData;
+use std::{collections::HashSet, marker::PhantomData};
 
 use alloy::{
     network::{Ethereum, NetworkWallet, ReceiptResponse, TransactionBuilder},
-    primitives::{Address, U256},
-    providers::{Provider, ProviderBuilder, WsConnect, fillers::RecommendedFillers},
+    primitives::{Address, FixedBytes, U256},
+    providers::{
+        Identity, Provider, ProviderBuilder, RootProvider, WsConnect,
+        fillers::{FillProvider, JoinFill, RecommendedFillers},
+    },
+    rpc::types::{Filter, Log},
     sol_types::SolCall,
 };
 use anyhow::{Result, anyhow};
@@ -61,7 +65,73 @@ pub async fn subscribe_blocks<B: BlockchainNetwork>(
     Ok(handle)
 }
 
-pub async fn init_client<B>() -> Result<RpcClient<B, impl Provider<B>>>
+pub async fn subscribe_topics<
+    T: Sync + Send + 'static,
+    B: BlockchainNetwork + RecommendedFillers,
+>(
+    sender: mpsc::UnboundedSender<T>,
+    topics: HashSet<FixedBytes<32>>,
+    filter_map_log: impl Fn(Log) -> Option<T> + Send + 'static,
+) -> Result<JoinHandle<Result<()>>> {
+    let api_key = env!("DRPC_API_KEY");
+    let ws_url = env!("DRPC_WS_URL");
+
+    let handle = tokio::spawn(async move {
+        println!("Connecting");
+        let ws_connect = WsConnect::new(format!(
+            "{}?network={}&dkey={}",
+            ws_url,
+            B::BLOCKCHAIN.name(),
+            api_key
+        ));
+        let ws_provider = ProviderBuilder::new_with_network::<B>()
+            .connect_ws(ws_connect)
+            .await?;
+
+        println!("Connected to provider");
+
+        // let filters = topics
+        //     .into_iter()
+        //     .map(|topic| Filter::new().event_signature(topic))
+        //     .collect::<Vec<_>>();
+
+        let filter = Filter::new().event_signature(topics.into_iter().collect::<Vec<_>>());
+
+        // let subscriptions = futures_util::future::try_join_all(
+        //     filters
+        //         .into_iter()
+        //         .map(|filter| ws_provider.subscribe_logs(&filter).into_future()),
+        // )
+        // .await?;
+        let mut subscription = ws_provider.subscribe_logs(&filter).await?;
+
+        println!("Subscribed to topics");
+
+        // let mut stream = futures_util::stream::select_all(
+        //     subscriptions.into_iter().map(|sub| sub.into_stream()),
+        // );
+
+        while let Ok(log) = subscription.recv().await {
+            if let Some(value) = filter_map_log(log) {
+                sender.send(value)?;
+            }
+        }
+
+        println!("Connection closed");
+
+        Ok(())
+    });
+
+    Ok(handle)
+}
+
+pub type NetworkProvider<B> = FillProvider<
+    JoinFill<Identity, <B as RecommendedFillers>::RecommendedFillers>,
+    RootProvider<B>,
+    B,
+>;
+
+pub async fn init_client<B>() -> Result<RpcClient<B, NetworkProvider<B>>>
 where
     B: BlockchainNetwork + RecommendedFillers,
 {
@@ -74,6 +144,7 @@ where
         B::BLOCKCHAIN.name(),
         api_key
     ))?;
+
     let provider = ProviderBuilder::new_with_network::<B>().connect_http(url);
 
     Ok(RpcClient {
@@ -145,10 +216,10 @@ impl<B: BlockchainNetwork, T: Provider<B>> RpcClient<B, T> {
 
         let decoded_response = multicall::Multicall3::aggregateCall::abi_decode_returns(&response)?;
 
-        let (_, reserves) = calls_data.into_iter().fold(
+        let (_, results) = calls_data.into_iter().fold(
             (0, Vec::<Result<D::Output>>::new()),
             |(position, mut collection), data| -> (usize, Vec<Result<D::Output>>) {
-                let next_position = position + D::SIZE;
+                let next_position = position + data.size();
                 let item =
                     data.decode_output(&decoded_response.returnData[position..next_position]);
                 collection.push(item);
@@ -156,7 +227,7 @@ impl<B: BlockchainNetwork, T: Provider<B>> RpcClient<B, T> {
             },
         );
 
-        Ok(reserves)
+        Ok(results)
     }
 
     pub async fn call<D: CallData<B>>(&self, call_data: D) -> Result<D::Output> {
