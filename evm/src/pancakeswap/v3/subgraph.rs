@@ -1,4 +1,5 @@
 use crate::blockchain::Blockchain;
+use crate::pancakeswap::v3::PoolInfo;
 use crate::pancakeswap_internal::v3::pool::Pool;
 use crate::subgraph::{SubgraphConfig, SubgraphQueryParams};
 use crate::tokens::{Token, TokenAddress};
@@ -51,16 +52,18 @@ fn map_pools(data: SubgraphResponse, blockchain: Blockchain) -> Vec<Pool> {
         .into_iter()
         .map(|pool_data| Pool {
             address: PoolAddress(pool_data.address, blockchain),
-            fee: pool_data.fee,
-            token0: Token {
-                address: TokenAddress(pool_data.token0.address, blockchain),
-                decimals: pool_data.token0.decimals,
-                symbol: pool_data.token0.symbol,
-            },
-            token1: Token {
-                address: TokenAddress(pool_data.token1.address, blockchain),
-                decimals: pool_data.token1.decimals,
-                symbol: pool_data.token1.symbol,
+            info: PoolInfo {
+                fee: pool_data.fee,
+                token0: Token {
+                    address: TokenAddress(pool_data.token0.address, blockchain),
+                    decimals: pool_data.token0.decimals,
+                    symbol: pool_data.token0.symbol,
+                },
+                token1: Token {
+                    address: TokenAddress(pool_data.token1.address, blockchain),
+                    decimals: pool_data.token1.decimals,
+                    symbol: pool_data.token1.symbol,
+                },
             },
         })
         .collect()

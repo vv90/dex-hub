@@ -17,49 +17,11 @@ use crate::{
     evm_network, multicall, pancakeswap_internal as pancakeswap,
     pool_id::PoolId,
     rpc::{self, client::NetworkProvider, multicall_data::MulticallData},
+    state_manager::pool_reserves_calls::PoolReservesCalls,
     tokens::Token,
     uniswap_internal as uniswap,
     virtual_reserves::VirtualReserves,
 };
-
-enum ReservesCallData<B: BlockchainNetwork> {
-    UniswapV2(uniswap::v2::reserves_call_data::ReservesCallData<B>),
-    UniswapV3(uniswap::v3::reserves_call_data::ReservesCallData<B>),
-    UniswapV4(uniswap::v4::reserves_call_data::ReservesCallData<B>),
-    PancakeSwap(pancakeswap::v3::reserves_call_data::ReservesCallData<B>),
-}
-
-impl<B: BlockchainNetwork> MulticallData<B> for ReservesCallData<B> {
-    type Calls = Vec<multicall::Multicall3::Call>;
-    type Output = VirtualReserves;
-
-    fn to_calls(&self) -> Self::Calls {
-        match self {
-            ReservesCallData::UniswapV2(data) => data.to_calls().into_iter().collect(),
-            ReservesCallData::UniswapV3(data) => data.to_calls().into_iter().collect(),
-            ReservesCallData::UniswapV4(data) => data.to_calls().into_iter().collect(),
-            ReservesCallData::PancakeSwap(data) => data.to_calls().into_iter().collect(),
-        }
-    }
-
-    fn decode_output(&self, response: &[Bytes]) -> Result<Self::Output> {
-        match self {
-            ReservesCallData::UniswapV2(data) => data.decode_output(response),
-            ReservesCallData::UniswapV3(data) => data.decode_output(response),
-            ReservesCallData::UniswapV4(data) => data.decode_output(response),
-            ReservesCallData::PancakeSwap(data) => data.decode_output(response),
-        }
-    }
-
-    fn size(&self) -> usize {
-        match self {
-            ReservesCallData::UniswapV2(data) => data.size(),
-            ReservesCallData::UniswapV3(data) => data.size(),
-            ReservesCallData::UniswapV4(data) => data.size(),
-            ReservesCallData::PancakeSwap(data) => data.size(),
-        }
-    }
-}
 
 type RpcClientEthereum =
     rpc::client::RpcClient<evm_network::Ethereum, NetworkProvider<evm_network::Ethereum>>;
@@ -207,10 +169,82 @@ impl PoolAddressesMap {
 
 impl StateManager {
     async fn get_reserves(
+        &self,
         ids: &[PoolId],
-        lookup_tokens: impl Fn(PoolId) -> (Token, Token),
+        lookup_uniswap_v2_pool_info: impl Fn(
+            &uniswap::v2::pool::PoolAddress,
+        ) -> Option<&uniswap::v2::pool::PoolInfo>,
+        lookup_uniswap_v3_pool_info: impl Fn(
+            &uniswap::v3::pool::PoolAddress,
+        ) -> Option<&uniswap::v3::pool::PoolInfo>,
+        lookup_uniswap_v4_pool_info: impl Fn(
+            &uniswap::v4::pool::PoolId,
+        ) -> Option<&uniswap::v4::pool::PoolInfo>,
+        lookup_pancakeswap_pool_info: impl Fn(
+            &pancakeswap::v3::pool::PoolAddress,
+        ) -> Option<&pancakeswap::v3::pool::PoolInfo>,
     ) -> Result<HashMap<PoolId, VirtualReserves>> {
-        Ok(HashMap::new())
+        let PoolReservesCalls {
+            ethereum,
+            bsc,
+            arbitrum,
+        } = ids.into_iter().try_fold(
+            PoolReservesCalls::new(),
+            |calls, id| -> Result<PoolReservesCalls> {
+                match id {
+                    PoolId::UniswapV2(pool_address) => calls.with_uniswap_v2_call(
+                        pool_address,
+                        lookup_uniswap_v2_pool_info(pool_address)
+                            .ok_or(anyhow!("pool info not found for pool id {:?}", id))?,
+                    ),
+                    PoolId::UniswapV3(pool_address) => calls.with_uniswap_v3_call(
+                        pool_address,
+                        lookup_uniswap_v3_pool_info(pool_address)
+                            .ok_or(anyhow!("pool info not found for pool id {:?}", id))?,
+                    ),
+                    PoolId::UniswapV4(pool_id) => calls.with_uniswap_v4_call(
+                        pool_id,
+                        lookup_uniswap_v4_pool_info(pool_id)
+                            .ok_or(anyhow!("pool info not found for pool id {:?}", id))?,
+                    ),
+                    PoolId::PancakeSwap(pool_address) => calls.with_pancakeswap_v3_call(
+                        pool_address,
+                        lookup_pancakeswap_pool_info(pool_address)
+                            .ok_or(anyhow!("pool info not found for pool id {:?}", id))?,
+                    ),
+                }
+            },
+        )?;
+
+        let ethereum_block_number = self.rpc_client_ethereum.get_block_number().await?;
+        let ethereum_reserves = self
+            .rpc_client_ethereum
+            .get_multicall(&ethereum, ethereum_block_number)
+            .await?
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+
+        let bsc_block_number = self.rpc_client_bsc.get_block_number().await?;
+        let bsc_reserves = self
+            .rpc_client_bsc
+            .get_multicall(&bsc, bsc_block_number)
+            .await?
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+
+        let arbitrum_block_number = self.rpc_client_arbitrum.get_block_number().await?;
+        let arbitrum_reserves = self
+            .rpc_client_arbitrum
+            .get_multicall(&arbitrum, arbitrum_block_number)
+            .await?
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(ethereum_reserves
+            .into_iter()
+            .chain(bsc_reserves.into_iter())
+            .chain(arbitrum_reserves.into_iter())
+            .collect())
     }
 
     pub async fn init(ids: &[PoolId]) -> Result<Self> {

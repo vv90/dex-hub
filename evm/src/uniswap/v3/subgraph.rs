@@ -1,6 +1,7 @@
 use crate::blockchain::Blockchain;
 use crate::subgraph::{SubgraphConfig, SubgraphQueryParams};
 use crate::tokens::{Token, TokenAddress};
+use crate::uniswap::v3::PoolInfo;
 use crate::{
     uniswap_internal::v3::pool::{Fee, Pool, PoolAddress, fee_from_int},
     utils::u32_from_str,
@@ -73,16 +74,18 @@ fn map_pools(data: SubgraphResponse, blockchain: Blockchain) -> Vec<Pool> {
         .into_iter()
         .map(|pool| Pool {
             address: PoolAddress(pool.address, blockchain),
-            fee: pool.fee,
-            token0: Token {
-                address: TokenAddress(pool.token0.address, blockchain),
-                decimals: pool.token0.decimals,
-                symbol: pool.token0.symbol,
-            },
-            token1: Token {
-                address: TokenAddress(pool.token1.address, blockchain),
-                decimals: pool.token1.decimals,
-                symbol: pool.token1.symbol,
+            info: PoolInfo {
+                fee: pool.fee,
+                token0: Token {
+                    address: TokenAddress(pool.token0.address, blockchain),
+                    decimals: pool.token0.decimals,
+                    symbol: pool.token0.symbol,
+                },
+                token1: Token {
+                    address: TokenAddress(pool.token1.address, blockchain),
+                    decimals: pool.token1.decimals,
+                    symbol: pool.token1.symbol,
+                },
             },
         })
         .collect()

@@ -9,6 +9,12 @@ use crate::{blockchain::Blockchain, tokens::Token, uniswap_internal::utils::fee_
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PoolAddress(pub(crate) Address, pub Blockchain);
 
+impl PoolAddress {
+    pub fn blockchain(&self) -> Blockchain {
+        self.1
+    }
+}
+
 /// The default factory enabled fee amounts, denominated in hundredths of bips.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 pub enum Fee {
@@ -54,9 +60,14 @@ pub fn fee_from_int(fee_amount: u32) -> Result<Fee> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Pool {
-    pub address: PoolAddress,
+pub struct PoolInfo {
     pub fee: Fee,
     pub token0: Token,
     pub token1: Token,
+}
+
+#[derive(Debug, Clone)]
+pub struct Pool {
+    pub address: PoolAddress,
+    pub info: PoolInfo,
 }

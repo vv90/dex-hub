@@ -2,6 +2,7 @@ use crate::blockchain::Blockchain;
 use crate::subgraph::{SubgraphConfig, SubgraphQueryParams};
 use crate::tokens::Token;
 use crate::tokens::TokenAddress;
+use crate::uniswap::v4::PoolInfo;
 use crate::uniswap_internal::v4::pool::{Fee, Pool, PoolId};
 use crate::utils::u32_from_str;
 use alloy::primitives::{Address, FixedBytes};
@@ -65,18 +66,21 @@ fn map_pools(data: SubgraphResponse, blockchain: Blockchain) -> Vec<Pool> {
     data.pools
         .into_iter()
         .map(|pool_data| Pool {
-            pool_id: PoolId(pool_data.id, blockchain),
-            fee: Fee(pool_data.fee),
-            tick_spacing: pool_data.tick_spacing,
-            token0: Token {
-                address: TokenAddress(pool_data.token0.address, blockchain),
-                symbol: pool_data.token0.symbol,
-                decimals: pool_data.token0.decimals,
-            },
-            token1: Token {
-                address: TokenAddress(pool_data.token1.address, blockchain),
-                symbol: pool_data.token1.symbol,
-                decimals: pool_data.token1.decimals,
+            id: PoolId(pool_data.id, blockchain),
+            info: PoolInfo {
+                fee: Fee(pool_data.fee),
+                tick_spacing: pool_data.tick_spacing,
+
+                token0: Token {
+                    address: TokenAddress(pool_data.token0.address, blockchain),
+                    symbol: pool_data.token0.symbol,
+                    decimals: pool_data.token0.decimals,
+                },
+                token1: Token {
+                    address: TokenAddress(pool_data.token1.address, blockchain),
+                    symbol: pool_data.token1.symbol,
+                    decimals: pool_data.token1.decimals,
+                },
             },
         })
         .collect()

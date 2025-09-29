@@ -11,7 +11,7 @@ use crate::{
     multicall,
     reserves::Reserves,
     rpc::multicall_data::MulticallData,
-    tokens::{Token, TokenAddress},
+    uniswap::v2::PoolInfo,
     uniswap_internal::v2::{contract, pool::PoolAddress},
     utils::try_into_decimal,
     virtual_reserves::VirtualReserves,
@@ -26,19 +26,17 @@ pub struct ReservesCallData<B: BlockchainNetwork> {
 }
 
 impl<B: BlockchainNetwork> ReservesCallData<B> {
-    pub fn create(pool_address: PoolAddress, token0: Token, token1: Token) -> Result<Self> {
+    pub fn create(pool_address: &PoolAddress, pool_info: &PoolInfo) -> Result<Self> {
         let PoolAddress(address, pool_blockchain) = pool_address;
-        let TokenAddress(_token0_address, token0_blockchain) = token0.address;
-        let TokenAddress(_token1_address, token1_blockchain) = token1.address;
 
         B::BLOCKCHAIN
-            .same_as(pool_blockchain)
-            .and_then(|bc| bc.same_as(token0_blockchain))
-            .and_then(|bc| bc.same_as(token1_blockchain))
+            .same_as(*pool_blockchain)
+            .and_then(|bc| bc.same_as(pool_info.token0.address.blockchain()))
+            .and_then(|bc| bc.same_as(pool_info.token1.address.blockchain()))
             .map(|_| Self {
-                pool_address: address,
-                token0_decimals: token0.decimals,
-                token1_decimals: token1.decimals,
+                pool_address: *address,
+                token0_decimals: pool_info.token0.decimals,
+                token1_decimals: pool_info.token1.decimals,
                 _blockchain_marker: PhantomData,
             })
     }
@@ -47,7 +45,7 @@ impl<B: BlockchainNetwork> ReservesCallData<B> {
 impl<B: BlockchainNetwork> MulticallData<B> for ReservesCallData<B> {
     type Calls = [multicall::Multicall3::Call; 1];
     // type Output = VirtualReserves<PoolAddress>;
-    type Output = VirtualReserves;
+    type Output = (PoolAddress, VirtualReserves);
 
     fn size(&self) -> usize {
         1
@@ -73,12 +71,14 @@ impl<B: BlockchainNetwork> MulticallData<B> for ReservesCallData<B> {
             let reserve_0 = try_into_decimal(reserves_output.reserve0, self.token0_decimals)?;
             let reserve_1 = try_into_decimal(reserves_output.reserve1, self.token1_decimals)?;
 
-            Ok(Reserves {
-                // pool_id: PoolAddress(self.pool_address, B::BLOCKCHAIN),
-                token0: reserve_0,
-                token1: reserve_1,
-            }
-            .as_virtual_reserves())
+            Ok((
+                PoolAddress(self.pool_address, B::BLOCKCHAIN),
+                Reserves {
+                    token0: reserve_0,
+                    token1: reserve_1,
+                }
+                .as_virtual_reserves(),
+            ))
         }
     }
 }

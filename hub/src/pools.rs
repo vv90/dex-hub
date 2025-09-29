@@ -100,8 +100,8 @@ pub enum TokensConnectionType {
 impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v2::Pool {
     fn adjacent_tokens(&self) -> AdjacentTokens {
         AdjacentTokens::Undirected(
-            TokenId::Evm(self.token0.address),
-            TokenId::Evm(self.token1.address),
+            TokenId::Evm(self.info.token0.address),
+            TokenId::Evm(self.info.token1.address),
         )
     }
 
@@ -113,8 +113,8 @@ impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v2::Pool {
 impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v3::Pool {
     fn adjacent_tokens(&self) -> AdjacentTokens {
         AdjacentTokens::Undirected(
-            TokenId::Evm(self.token0.address),
-            TokenId::Evm(self.token1.address),
+            TokenId::Evm(self.info.token0.address),
+            TokenId::Evm(self.info.token1.address),
         )
     }
 
@@ -126,21 +126,21 @@ impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v3::Pool {
 impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v4::Pool {
     fn adjacent_tokens(&self) -> AdjacentTokens {
         AdjacentTokens::Undirected(
-            TokenId::Evm(self.token0.address),
-            TokenId::Evm(self.token1.address),
+            TokenId::Evm(self.info.token0.address),
+            TokenId::Evm(self.info.token1.address),
         )
     }
 
     fn id(&self) -> TokensConnectionType {
-        TokensConnectionType::Swap(PoolId::Evm(evm::PoolId::UniswapV4(self.pool_id)))
+        TokensConnectionType::Swap(PoolId::Evm(evm::PoolId::UniswapV4(self.id)))
     }
 }
 
 impl TokenAdjacency<TokensConnectionType> for evm::pancakeswap::v3::Pool {
     fn adjacent_tokens(&self) -> AdjacentTokens {
         AdjacentTokens::Undirected(
-            TokenId::Evm(self.token0.address),
-            TokenId::Evm(self.token1.address),
+            TokenId::Evm(self.info.token0.address),
+            TokenId::Evm(self.info.token1.address),
         )
     }
 

@@ -9,7 +9,7 @@ use crate::{
     blockchain::BlockchainNetwork,
     multicall,
     rpc::multicall_data::MulticallData,
-    tokens::{Token, TokenAddress},
+    uniswap::v4::PoolInfo,
     uniswap_internal::v4::{
         contract,
         pool::{Fee, PoolId},
@@ -29,26 +29,18 @@ pub struct ReservesCallData<B: BlockchainNetwork> {
 }
 
 impl<B: BlockchainNetwork> ReservesCallData<B> {
-    pub fn create(
-        pool_id: PoolId,
-        token0: Token,
-        token1: Token,
-        fee: Fee,
-        tick_spacing: u32,
-    ) -> Result<Self> {
+    pub fn create(pool_id: &PoolId, pool_info: &PoolInfo) -> Result<Self> {
         let PoolId(pool_id, pool_blockchain) = pool_id;
-        let TokenAddress(_token0_address, token0_blockchain) = token0.address;
-        let TokenAddress(_token1_address, token1_blockchain) = token1.address;
         B::BLOCKCHAIN
-            .same_as(pool_blockchain)
-            .and_then(|bc| bc.same_as(token0_blockchain))
-            .and_then(|bc| bc.same_as(token1_blockchain))
+            .same_as(*pool_blockchain)
+            .and_then(|bc| bc.same_as(pool_info.token0.address.blockchain()))
+            .and_then(|bc| bc.same_as(pool_info.token1.address.blockchain()))
             .map(|_| Self {
-                pool_id,
-                token0_decimals: token0.decimals,
-                token1_decimals: token1.decimals,
-                fee,
-                tick_spacing,
+                pool_id: *pool_id,
+                token0_decimals: pool_info.token0.decimals,
+                token1_decimals: pool_info.token1.decimals,
+                fee: pool_info.fee,
+                tick_spacing: pool_info.tick_spacing,
                 _blockchain_marker: PhantomData,
             })
     }
@@ -57,7 +49,7 @@ impl<B: BlockchainNetwork> ReservesCallData<B> {
 impl<B: BlockchainNetwork> MulticallData<B> for ReservesCallData<B> {
     type Calls = [multicall::Multicall3::Call; 2];
     // type Output = VirtualReserves<PoolId>;
-    type Output = VirtualReserves;
+    type Output = (PoolId, VirtualReserves);
 
     fn size(&self) -> usize {
         2
@@ -112,13 +104,15 @@ impl<B: BlockchainNetwork> MulticallData<B> for ReservesCallData<B> {
             let max_swap0 = pool_state.swap_limit_x(self.tick_spacing as u16)?;
             let max_swap1 = pool_state.swap_limit_y(self.tick_spacing as u16)?;
 
-            Ok(VirtualReserves {
-                // pool_id: PoolId(self.pool_id, B::BLOCKCHAIN),
-                token0: try_into_decimal(reserve0, self.token0_decimals)?,
-                token1: try_into_decimal(reserve1, self.token1_decimals)?,
-                max_swap0: try_into_decimal(max_swap0, self.token0_decimals)?,
-                max_swap1: try_into_decimal(max_swap1, self.token1_decimals)?,
-            })
+            Ok((
+                PoolId(self.pool_id, B::BLOCKCHAIN),
+                VirtualReserves {
+                    token0: try_into_decimal(reserve0, self.token0_decimals)?,
+                    token1: try_into_decimal(reserve1, self.token1_decimals)?,
+                    max_swap0: try_into_decimal(max_swap0, self.token0_decimals)?,
+                    max_swap1: try_into_decimal(max_swap1, self.token1_decimals)?,
+                },
+            ))
         }
     }
 }
