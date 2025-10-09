@@ -9,7 +9,7 @@ use crate::{
     blockchain::BlockchainNetwork,
     multicall,
     rpc::multicall_data::MulticallData,
-    uniswap::v4::PoolInfo,
+    tokens::TokenInfo,
     uniswap_internal::v4::{
         contract,
         pool::{Fee, PoolId},
@@ -29,20 +29,21 @@ pub struct ReservesCallData<B: BlockchainNetwork> {
 }
 
 impl<B: BlockchainNetwork> ReservesCallData<B> {
-    pub fn create(pool_id: &PoolId, pool_info: &PoolInfo) -> Result<Self> {
-        let PoolId(pool_id, pool_blockchain) = pool_id;
-        B::BLOCKCHAIN
-            .same_as(*pool_blockchain)
-            .and_then(|bc| bc.same_as(pool_info.token0.address.blockchain()))
-            .and_then(|bc| bc.same_as(pool_info.token1.address.blockchain()))
-            .map(|_| Self {
-                pool_id: *pool_id,
-                token0_decimals: pool_info.token0.decimals,
-                token1_decimals: pool_info.token1.decimals,
-                fee: pool_info.fee,
-                tick_spacing: pool_info.tick_spacing,
-                _blockchain_marker: PhantomData,
-            })
+    pub fn new(
+        pool_id: FixedBytes<32>,
+        token0: &TokenInfo,
+        token1: &TokenInfo,
+        fee: Fee,
+        tick_spacing: u32,
+    ) -> Self {
+        Self {
+            pool_id,
+            token0_decimals: token0.decimals,
+            token1_decimals: token1.decimals,
+            fee,
+            tick_spacing,
+            _blockchain_marker: PhantomData,
+        }
     }
 }
 
@@ -111,6 +112,7 @@ impl<B: BlockchainNetwork> MulticallData<B> for ReservesCallData<B> {
                     token1: try_into_decimal(reserve1, self.token1_decimals)?,
                     max_swap0: try_into_decimal(max_swap0, self.token0_decimals)?,
                     max_swap1: try_into_decimal(max_swap1, self.token1_decimals)?,
+                    fee_multiplier: self.fee.fee_multiplier(),
                 },
             ))
         }

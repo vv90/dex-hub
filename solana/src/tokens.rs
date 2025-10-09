@@ -12,8 +12,12 @@ impl TokenAddress {
     }
 }
 
-pub struct Token {
-    pub address: TokenAddress,
+pub struct TokenInfo {
     pub decimals: u8,
     pub symbol: Option<String>,
+}
+
+pub struct Token {
+    pub address: TokenAddress,
+    pub info: TokenInfo,
 }

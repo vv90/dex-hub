@@ -1,2 +1,4 @@
+mod event;
 mod pool_reserves_calls;
-mod state_manager;
+mod protocol_addresses;
+pub mod state_manager;

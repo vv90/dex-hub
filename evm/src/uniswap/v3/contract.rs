@@ -1,5 +1,5 @@
 use alloy::{
-    primitives::{Address, FixedBytes, address, fixed_bytes},
+    primitives::{Address, address},
     sol,
 };
 

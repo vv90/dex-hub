@@ -3,9 +3,9 @@ use std::marker::PhantomData;
 use crate::{
     blockchain::BlockchainNetwork,
     multicall,
-    pancakeswap::v3::PoolInfo,
     pancakeswap_internal::v3::pool::{Fee, PoolAddress},
     rpc::multicall_data::MulticallData,
+    tokens::TokenInfo,
     uniswap_internal::v3::{contract, pool_state::PoolState},
     utils::try_into_decimal,
     virtual_reserves::VirtualReserves,
@@ -26,19 +26,30 @@ pub struct ReservesCallData<B: BlockchainNetwork> {
 }
 
 impl<B: BlockchainNetwork> ReservesCallData<B> {
-    pub fn create(address: &PoolAddress, pool_info: &PoolInfo) -> Result<Self> {
+    pub fn new(pool_address: Address, token0: &TokenInfo, token1: &TokenInfo, fee: Fee) -> Self {
+        Self {
+            pool_address,
+            token0_decimals: token0.decimals,
+            token1_decimals: token1.decimals,
+            fee,
+            _blockchain_marker: PhantomData,
+        }
+    }
+
+    pub fn create(
+        address: &PoolAddress,
+        token0: &TokenInfo,
+        token1: &TokenInfo,
+        fee: Fee,
+    ) -> Result<Self> {
         let PoolAddress(pool_address, pool_blockchain) = address;
-        B::BLOCKCHAIN
-            .same_as(*pool_blockchain)
-            .and_then(|bc| bc.same_as(pool_info.token0.address.blockchain()))
-            .and_then(|bc| bc.same_as(pool_info.token1.address.blockchain()))
-            .map(|_| Self {
-                pool_address: *pool_address,
-                token0_decimals: pool_info.token0.decimals,
-                token1_decimals: pool_info.token1.decimals,
-                fee: pool_info.fee,
-                _blockchain_marker: PhantomData,
-            })
+        B::BLOCKCHAIN.same_as(*pool_blockchain).map(|_| Self {
+            pool_address: *pool_address,
+            token0_decimals: token0.decimals,
+            token1_decimals: token1.decimals,
+            fee: fee,
+            _blockchain_marker: PhantomData,
+        })
     }
 }
 
@@ -101,6 +112,7 @@ impl<B: BlockchainNetwork> MulticallData<B> for ReservesCallData<B> {
                     token1: try_into_decimal(reserve1, self.token1_decimals)?,
                     max_swap0: try_into_decimal(max_swap0, self.token0_decimals)?,
                     max_swap1: try_into_decimal(max_swap1, self.token1_decimals)?,
+                    fee_multiplier: self.fee.fee_multiplier(),
                 },
             ))
         }

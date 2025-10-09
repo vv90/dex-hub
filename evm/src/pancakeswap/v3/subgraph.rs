@@ -1,8 +1,10 @@
+use std::collections::HashMap;
+
 use crate::blockchain::Blockchain;
 use crate::pancakeswap::v3::PoolInfo;
 use crate::pancakeswap_internal::v3::pool::Pool;
 use crate::subgraph::{SubgraphConfig, SubgraphQueryParams};
-use crate::tokens::{Token, TokenAddress};
+use crate::tokens::{TokenAddress, TokenInfo};
 use crate::{
     pancakeswap_internal::v3::pool::{Fee, PoolAddress, fee_from_int},
     utils::u32_from_str,
@@ -47,26 +49,38 @@ struct SubgraphResponse {
     pools: Vec<PoolData>,
 }
 
-fn map_pools(data: SubgraphResponse, blockchain: Blockchain) -> Vec<Pool> {
-    data.pools
-        .into_iter()
-        .map(|pool_data| Pool {
-            address: PoolAddress(pool_data.address, blockchain),
-            info: PoolInfo {
-                fee: pool_data.fee,
-                token0: Token {
-                    address: TokenAddress(pool_data.token0.address, blockchain),
-                    decimals: pool_data.token0.decimals,
-                    symbol: pool_data.token0.symbol,
+fn map_pools(
+    blockchain: Blockchain,
+    tokens_map: HashMap<TokenAddress, TokenInfo>,
+    data: SubgraphResponse,
+) -> (Vec<Pool>, HashMap<TokenAddress, TokenInfo>) {
+    data.pools.into_iter().fold(
+        (Vec::new(), tokens_map),
+        |(mut pools, mut tokens), pool_data| {
+            let token0_address = TokenAddress(pool_data.token0.address, blockchain);
+            let token1_address = TokenAddress(pool_data.token1.address, blockchain);
+            let pool = Pool {
+                address: PoolAddress(pool_data.address, blockchain),
+                info: PoolInfo {
+                    token0: token0_address,
+                    token1: token1_address,
+                    fee: pool_data.fee,
                 },
-                token1: Token {
-                    address: TokenAddress(pool_data.token1.address, blockchain),
-                    decimals: pool_data.token1.decimals,
-                    symbol: pool_data.token1.symbol,
-                },
-            },
-        })
-        .collect()
+            };
+
+            pools.push(pool);
+            tokens.entry(token0_address).or_insert_with(|| TokenInfo {
+                decimals: pool_data.token0.decimals,
+                symbol: pool_data.token0.symbol,
+            });
+            tokens.entry(token1_address).or_insert_with(|| TokenInfo {
+                decimals: pool_data.token1.decimals,
+                symbol: pool_data.token1.symbol,
+            });
+
+            (pools, tokens)
+        },
+    )
 }
 
 const QUERY: &str = "{ id feeTier token0 { id decimals symbol } token1 { id decimals symbol } }";
@@ -88,24 +102,27 @@ const ETHEREUM: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
     subgraph_url: env!("PANCAKESWAP_V3_SUBGRAPH_ETH_URL"),
     subgraph_name: "ethereum/pancakeswap/v3",
     format_query,
-    map_pools: |data| map_pools(data, Blockchain::Ethereum),
+    map_pools: |tokens, data| map_pools(Blockchain::Ethereum, tokens, data),
 };
 
 const BSC: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
     subgraph_url: env!("PANCAKESWAP_V3_SUBGRAPH_BSC_URL"),
     subgraph_name: "bsc/pancakeswap/v3",
     format_query,
-    map_pools: |data| map_pools(data, Blockchain::BSC),
+    map_pools: |tokens, data| map_pools(Blockchain::BSC, tokens, data),
 };
 
 const ARBITRUM: SubgraphConfig<SubgraphResponse, Pool> = SubgraphConfig {
     subgraph_url: env!("PANCAKESWAP_V3_SUBGRAPH_ARBITRUM_URL"),
     subgraph_name: "arbitrum/pancakeswap/v3",
     format_query,
-    map_pools: |data| map_pools(data, Blockchain::Arbitrum),
+    map_pools: |tokens, data| map_pools(Blockchain::Arbitrum, tokens, data),
 };
 
-pub async fn get_pools(blockchain: Blockchain, min_value: Decimal) -> Result<Vec<Pool>> {
+pub async fn get_pools(
+    blockchain: Blockchain,
+    min_value: Decimal,
+) -> Result<(Vec<Pool>, HashMap<TokenAddress, TokenInfo>)> {
     match blockchain {
         Blockchain::Ethereum => ETHEREUM.query_pools(min_value).await,
         Blockchain::BSC => BSC.query_pools(min_value).await,

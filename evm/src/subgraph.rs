@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs::{self, File},
     hash::{Hash, Hasher},
     io::{Read, Write},
@@ -8,6 +9,8 @@ use std::{
 use anyhow::{Result, anyhow};
 use rust_decimal::Decimal;
 use serde::{Deserialize, de::DeserializeOwned};
+
+use crate::tokens::{TokenAddress, TokenInfo};
 
 #[derive(Debug, Clone, Deserialize)]
 struct SubgraphResponseData<T> {
@@ -109,15 +112,25 @@ pub struct SubgraphQueryParams {
     pub min_value: Decimal,
 }
 
-pub struct SubgraphConfig<D: DeserializeOwned, T> {
+pub struct SubgraphConfig<D: DeserializeOwned, P> {
     pub subgraph_url: &'static str,
     pub subgraph_name: &'static str,
     pub format_query: fn(SubgraphQueryParams) -> String,
-    pub map_pools: fn(D) -> Vec<T>,
+    // deserialised data from subgraph response is mapped into pools,
+    // updating the tokens hash map with new tokens
+    pub map_pools:
+        fn(HashMap<TokenAddress, TokenInfo>, D) -> (Vec<P>, HashMap<TokenAddress, TokenInfo>),
 }
 
-impl<D: DeserializeOwned, T> SubgraphConfig<D, T> {
-    pub async fn query_pools(&self, min_value: Decimal) -> Result<Vec<T>> {
+// Since many pools may refer to the same tokens,
+// we want to return pools and tokens in those pools separately
+// to avoid data duplication.
+// Pool data type is only supposed to have token address and not full token data
+impl<D: DeserializeOwned, P> SubgraphConfig<D, P> {
+    pub async fn query_pools(
+        &self,
+        min_value: Decimal,
+    ) -> Result<(Vec<P>, HashMap<TokenAddress, TokenInfo>)> {
         let cache_path = format!(
             "{}/{}",
             env!("SUBGRAPH_RESPONSE_CACHE_PATH"),
@@ -126,7 +139,8 @@ impl<D: DeserializeOwned, T> SubgraphConfig<D, T> {
 
         let limit = 1000;
 
-        let mut all_pools = Vec::<T>::new();
+        let mut all_pools = Vec::<P>::new();
+        let mut all_tokens = HashMap::<TokenAddress, TokenInfo>::new();
         let mut skip = 0;
 
         loop {
@@ -139,7 +153,8 @@ impl<D: DeserializeOwned, T> SubgraphConfig<D, T> {
 
             let pools_data = query_subgraph::<D>(self.subgraph_url, &query, &cache_path).await?;
 
-            let pools = (self.map_pools)(pools_data);
+            let (pools, tokens) = (self.map_pools)(all_tokens, pools_data);
+            all_tokens = tokens;
 
             let items_loaded = pools.len();
             if items_loaded == 0 {
@@ -151,6 +166,6 @@ impl<D: DeserializeOwned, T> SubgraphConfig<D, T> {
             }
         }
 
-        Ok(all_pools)
+        Ok((all_pools, all_tokens))
     }
 }

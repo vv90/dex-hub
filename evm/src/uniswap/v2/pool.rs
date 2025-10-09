@@ -1,6 +1,6 @@
 use alloy::primitives::Address;
 
-use crate::{blockchain::Blockchain, tokens::Token};
+use crate::{blockchain::Blockchain, tokens::TokenAddress};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PoolAddress(pub(crate) Address, pub Blockchain);
@@ -12,8 +12,8 @@ impl PoolAddress {
 }
 
 pub struct PoolInfo {
-    pub token0: Token,
-    pub token1: Token,
+    pub token0: TokenAddress,
+    pub token1: TokenAddress,
 }
 
 pub struct Pool {

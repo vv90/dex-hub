@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use crate::{
     graph::{AdjacentTokens, DexGraph, TokenAdjacency},
-    tokens::TokenId,
+    tokens::{Token, TokenId},
 };
 use anyhow::{Result, anyhow};
 use evm::Blockchain;
@@ -100,8 +102,8 @@ pub enum TokensConnectionType {
 impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v2::Pool {
     fn adjacent_tokens(&self) -> AdjacentTokens {
         AdjacentTokens::Undirected(
-            TokenId::Evm(self.info.token0.address),
-            TokenId::Evm(self.info.token1.address),
+            TokenId::Evm(self.info.token0),
+            TokenId::Evm(self.info.token1),
         )
     }
 
@@ -113,8 +115,8 @@ impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v2::Pool {
 impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v3::Pool {
     fn adjacent_tokens(&self) -> AdjacentTokens {
         AdjacentTokens::Undirected(
-            TokenId::Evm(self.info.token0.address),
-            TokenId::Evm(self.info.token1.address),
+            TokenId::Evm(self.info.token0),
+            TokenId::Evm(self.info.token1),
         )
     }
 
@@ -126,8 +128,8 @@ impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v3::Pool {
 impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v4::Pool {
     fn adjacent_tokens(&self) -> AdjacentTokens {
         AdjacentTokens::Undirected(
-            TokenId::Evm(self.info.token0.address),
-            TokenId::Evm(self.info.token1.address),
+            TokenId::Evm(self.info.token0),
+            TokenId::Evm(self.info.token1),
         )
     }
 
@@ -139,8 +141,8 @@ impl TokenAdjacency<TokensConnectionType> for evm::uniswap::v4::Pool {
 impl TokenAdjacency<TokensConnectionType> for evm::pancakeswap::v3::Pool {
     fn adjacent_tokens(&self) -> AdjacentTokens {
         AdjacentTokens::Undirected(
-            TokenId::Evm(self.info.token0.address),
-            TokenId::Evm(self.info.token1.address),
+            TokenId::Evm(self.info.token0),
+            TokenId::Evm(self.info.token1),
         )
     }
 
@@ -196,12 +198,31 @@ const REMOTE_CHAIN_SELECTORS: [u64; 3] = [
 async fn with_evm_blockchain_pools(
     blockchain: Blockchain,
     graph: DexGraph<TokensConnectionType>,
-) -> Result<DexGraph<TokensConnectionType>> {
-    Ok(graph
-        .with_adjacent_tokens(&evm::uniswap::v2::get_pools(blockchain, MIN_VALUE).await?)
-        .with_adjacent_tokens(&evm::uniswap::v3::get_pools(blockchain, MIN_VALUE).await?)
-        .with_adjacent_tokens(&evm::uniswap::v4::get_pools(blockchain, MIN_VALUE).await?)
-        .with_adjacent_tokens(&evm::pancakeswap::v3::get_pools(blockchain, MIN_VALUE).await?))
+) -> Result<(
+    DexGraph<TokensConnectionType>,
+    HashMap<evm::tokens::TokenAddress, evm::tokens::TokenInfo>,
+)> {
+    let mut tokens_map = HashMap::new();
+    let (pools_u2, tokens) = evm::uniswap::v2::get_pools(blockchain, MIN_VALUE).await?;
+    tokens_map.extend(tokens.into_iter());
+
+    let (pools_u3, tokens) = evm::uniswap::v3::get_pools(blockchain, MIN_VALUE).await?;
+    tokens_map.extend(tokens.into_iter());
+
+    let (pools_u4, tokens) = evm::uniswap::v4::get_pools(blockchain, MIN_VALUE).await?;
+    tokens_map.extend(tokens.into_iter());
+
+    let (pools_p3, tokens) = evm::pancakeswap::v3::get_pools(blockchain, MIN_VALUE).await?;
+    tokens_map.extend(tokens.into_iter());
+
+    Ok((
+        graph
+            .with_adjacent_tokens(&pools_u2)
+            .with_adjacent_tokens(&pools_u3)
+            .with_adjacent_tokens(&pools_u4)
+            .with_adjacent_tokens(&pools_p3),
+        tokens_map,
+    ))
 }
 
 // async fn with_solana_blockchain_pools(
@@ -211,11 +232,65 @@ async fn with_evm_blockchain_pools(
 //         .with_adjacent_tokens(&solana::orca::get_pools(MIN_VALUE.round().mantissa() as i32).await?))
 // }
 
-pub async fn collect_pools() -> Result<DexGraph<TokensConnectionType>> {
+pub struct PoolsInformation {
+    pub tokens: HashMap<evm::tokens::TokenAddress, evm::tokens::TokenInfo>,
+    pub uniswap_v2_pools: HashMap<evm::uniswap::v2::PoolAddress, evm::uniswap::v2::PoolInfo>,
+    pub uniswap_v3_pools: HashMap<evm::uniswap::v3::PoolAddress, evm::uniswap::v3::PoolInfo>,
+    pub uniswap_v4_pools: HashMap<evm::uniswap::v4::PoolId, evm::uniswap::v4::PoolInfo>,
+    pub pancakeswap_pools:
+        HashMap<evm::pancakeswap::v3::PoolAddress, evm::pancakeswap::v3::PoolInfo>,
+}
+
+pub async fn collect_pools() -> Result<(PoolsInformation, DexGraph<TokensConnectionType>)> {
     let mut tokens_graph: DexGraph<TokensConnectionType> = DexGraph::new();
+    let mut evm_tokens: HashMap<evm::tokens::TokenAddress, evm::tokens::TokenInfo> = HashMap::new();
+    let mut evm_pools_u2: HashMap<evm::uniswap::v2::PoolAddress, evm::uniswap::v2::PoolInfo> =
+        HashMap::new();
+    let mut evm_pools_u3: HashMap<evm::uniswap::v3::PoolAddress, evm::uniswap::v3::PoolInfo> =
+        HashMap::new();
+    let mut evm_pools_u4: HashMap<evm::uniswap::v4::PoolId, evm::uniswap::v4::PoolInfo> =
+        HashMap::new();
+    let mut evm_pools_p3: HashMap<
+        evm::pancakeswap::v3::PoolAddress,
+        evm::pancakeswap::v3::PoolInfo,
+    > = HashMap::new();
 
     for blockchain in EVM_BLOCKCHAINS {
-        tokens_graph = with_evm_blockchain_pools(blockchain, tokens_graph).await?;
+        let (pools_u2, tokens) = evm::uniswap::v2::get_pools(blockchain, MIN_VALUE).await?;
+        tokens_graph = tokens_graph.with_adjacent_tokens(&pools_u2);
+        evm_tokens.extend(tokens.into_iter());
+        evm_pools_u2.extend(
+            pools_u2
+                .into_iter()
+                .map(|evm::uniswap::v2::Pool { address, info }| (address, info)),
+        );
+
+        let (pools_u3, tokens) = evm::uniswap::v3::get_pools(blockchain, MIN_VALUE).await?;
+        tokens_graph = tokens_graph.with_adjacent_tokens(&pools_u3);
+        evm_pools_u3.extend(
+            pools_u3
+                .into_iter()
+                .map(|evm::uniswap::v3::Pool { address, info }| (address, info)),
+        );
+        evm_tokens.extend(tokens.into_iter());
+
+        let (pools_u4, tokens) = evm::uniswap::v4::get_pools(blockchain, MIN_VALUE).await?;
+        tokens_graph = tokens_graph.with_adjacent_tokens(&pools_u4);
+        evm_tokens.extend(tokens.into_iter());
+        evm_pools_u4.extend(
+            pools_u4
+                .into_iter()
+                .map(|evm::uniswap::v4::Pool { id, info }| (id, info)),
+        );
+
+        let (pools_p3, tokens) = evm::pancakeswap::v3::get_pools(blockchain, MIN_VALUE).await?;
+        tokens_graph = tokens_graph.with_adjacent_tokens(&pools_p3);
+        evm_tokens.extend(tokens.into_iter());
+        evm_pools_p3.extend(
+            pools_p3
+                .into_iter()
+                .map(|evm::pancakeswap::v3::Pool { address, info }| (address, info)),
+        );
     }
 
     // tokens_graph = with_solana_blockchain_pools(tokens_graph).await?;
@@ -243,6 +318,98 @@ pub async fn collect_pools() -> Result<DexGraph<TokensConnectionType>> {
     tokens_graph = tokens_graph.pruned(TokenId::Evm(evm::tokens::ethereum::USDC.address));
 
     println!("Graph size after pruning: {}", tokens_graph.tokens_count());
+    let (u2, u3, u4, p3, s) =
+        tokens_graph
+            .adjacency_ids()
+            .fold(
+                (0, 0, 0, 0, 0),
+                |(u2, u3, u4, p3, s), adj_id| match adj_id {
+                    TokensConnectionType::Swap(PoolId::Evm(evm::PoolId::UniswapV2(_))) => {
+                        (u2 + 1, u3, u4, p3, s)
+                    }
+                    TokensConnectionType::Swap(PoolId::Evm(evm::PoolId::UniswapV3(_))) => {
+                        (u2, u3 + 1, u4, p3, s)
+                    }
+                    TokensConnectionType::Swap(PoolId::Evm(evm::PoolId::UniswapV4(_))) => {
+                        (u2, u3, u4 + 1, p3, s)
+                    }
+                    TokensConnectionType::Swap(PoolId::Evm(evm::PoolId::PancakeSwap(_))) => {
+                        (u2, u3, u4, p3 + 1, s)
+                    }
+                    TokensConnectionType::Swap(PoolId::Solana(_)) => (u2, u3, u4, p3, s + 1),
+                    TokensConnectionType::Bridge(_) => (u2, u3, u4, p3, s),
+                },
+            );
+    println!("Uniswap V2 pools after pruning: {}", u2);
+    println!("Uniswap V3 pools after pruning: {}", u3);
+    println!("Uniswap V4 pools after pruning: {}", u4);
+    println!("PancakeSwap pools after pruning: {}", p3);
+    println!("Solana pools after pruning: {}", s);
 
-    Ok(tokens_graph)
+    let pools_information = PoolsInformation {
+        tokens: evm_tokens
+            .into_iter()
+            .filter(|(address, _)| tokens_graph.contains_token(TokenId::Evm(*address)))
+            .collect(),
+        uniswap_v2_pools: evm_pools_u2
+            .into_iter()
+            .filter(|(id, info)| {
+                tokens_graph.contains_adjacency(
+                    TokenId::Evm(info.token0),
+                    TokenId::Evm(info.token1),
+                    &TokensConnectionType::Swap(PoolId::Evm(evm::PoolId::UniswapV2(*id))),
+                )
+            })
+            .collect(),
+        uniswap_v3_pools: evm_pools_u3
+            .into_iter()
+            .filter(|(id, info)| {
+                tokens_graph.contains_adjacency(
+                    TokenId::Evm(info.token0),
+                    TokenId::Evm(info.token1),
+                    &TokensConnectionType::Swap(PoolId::Evm(evm::PoolId::UniswapV3(*id))),
+                )
+            })
+            .collect(),
+        uniswap_v4_pools: evm_pools_u4
+            .into_iter()
+            .filter(|(id, info)| {
+                tokens_graph.contains_adjacency(
+                    TokenId::Evm(info.token0),
+                    TokenId::Evm(info.token1),
+                    &TokensConnectionType::Swap(PoolId::Evm(evm::PoolId::UniswapV4(*id))),
+                )
+            })
+            .collect(),
+        pancakeswap_pools: evm_pools_p3
+            .into_iter()
+            .filter(|(id, info)| {
+                tokens_graph.contains_adjacency(
+                    TokenId::Evm(info.token0),
+                    TokenId::Evm(info.token1),
+                    &TokensConnectionType::Swap(PoolId::Evm(evm::PoolId::PancakeSwap(*id))),
+                )
+            })
+            .collect(),
+    };
+
+    println!("Tokens map size: {}", pools_information.tokens.len());
+    println!(
+        "Uniswap V2 map size: {}",
+        pools_information.uniswap_v2_pools.len()
+    );
+    println!(
+        "Uniswap V3 map size: {}",
+        pools_information.uniswap_v3_pools.len()
+    );
+    println!(
+        "Uniswap V4 map size: {}",
+        pools_information.uniswap_v4_pools.len()
+    );
+    println!(
+        "PancakeSwap map size: {}",
+        pools_information.pancakeswap_pools.len()
+    );
+
+    Ok((pools_information, tokens_graph))
 }

@@ -6,5 +6,10 @@ pub enum TokenId {
     Solana(solana::tokens::TokenAddress),
 }
 
+pub enum Token {
+    Evm(evm::tokens::Token),
+    Solana(solana::tokens::Token),
+}
+
 pub const BLACKLIST: LazyLock<HashSet<TokenId>> =
     LazyLock::new(|| HashSet::from([TokenId::Evm(evm::tokens::ethereum::USD_OLD.address)]));

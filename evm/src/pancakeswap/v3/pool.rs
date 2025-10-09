@@ -4,7 +4,9 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::Deserialize;
 
-use crate::{blockchain::Blockchain, tokens::Token, uniswap_internal::utils::fee_amount_from_int};
+use crate::{
+    blockchain::Blockchain, tokens::TokenAddress, uniswap_internal::utils::fee_amount_from_int,
+};
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PoolAddress(pub(crate) Address, pub Blockchain);
@@ -62,8 +64,8 @@ pub fn fee_from_int(fee_amount: u32) -> Result<Fee> {
 #[derive(Debug, Clone)]
 pub struct PoolInfo {
     pub fee: Fee,
-    pub token0: Token,
-    pub token1: Token,
+    pub token0: TokenAddress,
+    pub token1: TokenAddress,
 }
 
 #[derive(Debug, Clone)]

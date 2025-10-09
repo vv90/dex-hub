@@ -5,13 +5,14 @@ use alloy::{
     sol_types::SolCall,
 };
 use anyhow::{Result, anyhow};
+use rust_decimal_macros::dec;
 
 use crate::{
     blockchain::BlockchainNetwork,
     multicall,
     reserves::Reserves,
     rpc::multicall_data::MulticallData,
-    uniswap::v2::PoolInfo,
+    tokens::TokenInfo,
     uniswap_internal::v2::{contract, pool::PoolAddress},
     utils::try_into_decimal,
     virtual_reserves::VirtualReserves,
@@ -26,19 +27,13 @@ pub struct ReservesCallData<B: BlockchainNetwork> {
 }
 
 impl<B: BlockchainNetwork> ReservesCallData<B> {
-    pub fn create(pool_address: &PoolAddress, pool_info: &PoolInfo) -> Result<Self> {
-        let PoolAddress(address, pool_blockchain) = pool_address;
-
-        B::BLOCKCHAIN
-            .same_as(*pool_blockchain)
-            .and_then(|bc| bc.same_as(pool_info.token0.address.blockchain()))
-            .and_then(|bc| bc.same_as(pool_info.token1.address.blockchain()))
-            .map(|_| Self {
-                pool_address: *address,
-                token0_decimals: pool_info.token0.decimals,
-                token1_decimals: pool_info.token1.decimals,
-                _blockchain_marker: PhantomData,
-            })
+    pub fn new(pool_address: Address, token0: &TokenInfo, token1: &TokenInfo) -> Self {
+        Self {
+            pool_address,
+            token0_decimals: token0.decimals,
+            token1_decimals: token1.decimals,
+            _blockchain_marker: PhantomData,
+        }
     }
 }
 
@@ -76,6 +71,8 @@ impl<B: BlockchainNetwork> MulticallData<B> for ReservesCallData<B> {
                 Reserves {
                     token0: reserve_0,
                     token1: reserve_1,
+                    // uniswap v2 fee amount is fixed at 0.3%
+                    fee_multiplier: dec!(0.997),
                 }
                 .as_virtual_reserves(),
             ))

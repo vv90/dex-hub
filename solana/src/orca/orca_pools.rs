@@ -5,7 +5,7 @@ use solana_sdk::pubkey::Pubkey;
 
 use crate::{
     orca::{Fee, Pool, PoolAddress},
-    tokens::{Token, TokenAddress},
+    tokens::{Token, TokenAddress, TokenInfo},
 };
 
 // const WHIRPOOLS_API_URL: &str = "https://api.orca.so/v2/solana/pools?sortBy=volume&sortDirection=desc&hasAdaptiveFee=false&size=100";
@@ -84,13 +84,17 @@ pub async fn get_pools(min_value: i32) -> Result<Vec<Pool>> {
             address: PoolAddress(dto.address),
             token0: Token {
                 address: TokenAddress(dto.token0.address),
-                decimals: dto.token0.decimals,
-                symbol: dto.token0.symbol,
+                info: TokenInfo {
+                    decimals: dto.token0.decimals,
+                    symbol: dto.token0.symbol,
+                },
             },
             token1: Token {
                 address: TokenAddress(dto.token1.address),
-                decimals: dto.token1.decimals,
-                symbol: dto.token1.symbol,
+                info: TokenInfo {
+                    decimals: dto.token1.decimals,
+                    symbol: dto.token1.symbol,
+                },
             },
             fee: Fee(dto.fee),
             tick_spacing: dto.tick_spacing,

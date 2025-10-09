@@ -68,6 +68,10 @@ impl<B: BlockchainNetwork> BlockNumber<B> {
     pub fn value(&self) -> u64 {
         self.number
     }
+
+    pub fn pick_latest(a: Self, b: Self) -> Self {
+        if a.value() > b.value() { a } else { b }
+    }
 }
 
 impl<B: BlockchainNetwork> std::fmt::Display for BlockNumber<B> {

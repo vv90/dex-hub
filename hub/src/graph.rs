@@ -162,6 +162,19 @@ impl<T: Eq + std::hash::Hash> DexGraph<T> {
             })
     }
 
+    pub fn contains_token(&self, token: TokenId) -> bool {
+        let DexGraph(graph) = self;
+        graph.contains_node(token)
+    }
+
+    pub fn contains_adjacency(&self, token_a: TokenId, token_b: TokenId, adj_id: &T) -> bool {
+        let DexGraph(graph) = self;
+        graph
+            .edge_weight(token_a, token_b)
+            .and_then(|w| w.get(adj_id))
+            .is_some()
+    }
+
     pub fn components(&self) -> Vec<Vec<TokenId>> {
         let DexGraph(graph) = self;
         kosaraju_scc(graph)
@@ -172,18 +185,25 @@ impl<T: Eq + std::hash::Hash> DexGraph<T> {
         graph.node_count()
     }
 
+    // pub fn adjacency_count(&self) -> usize {
+    //     let DexGraph(graph) = self;
+    //     graph
+    //         .all_edges()
+    //         .fold(0, |total, (_, _, ids)| total + ids.len())
+    // }
+
     pub fn tokens(&self) -> HashSet<TokenId> {
         let DexGraph(graph) = self;
         graph.nodes().collect()
     }
 
-    pub fn adjacency_ids(&self) -> HashSet<&T> {
+    pub fn adjacency_ids(&self) -> impl Iterator<Item = &T> {
         let DexGraph(graph) = self;
-        graph
-            .all_edges()
-            .fold(HashSet::new(), |mut set, (_, _, ids)| {
-                set.extend(ids.iter());
-                set
-            })
+        graph.all_edges().flat_map(|(_, _, ids)| ids.iter())
+
+        // .fold(HashSet::new(), |mut set, (_, _, ids)| {
+        //     set.extend(ids.iter());
+        //     set
+        // })
     }
 }

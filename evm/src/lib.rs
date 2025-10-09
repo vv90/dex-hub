@@ -12,18 +12,19 @@ mod subgraph;
 #[path = "uniswap/mod.rs"]
 mod uniswap_internal;
 
+mod pool_id;
+mod state_manager;
 mod utils;
 mod virtual_reserves;
 
 pub mod chainlink;
-mod pool_id;
-pub mod state_manager;
 pub mod tokens;
 
 // pub const BLACKLIST: LazyLock<HashSet<TokenAddress>> = tokens::BLACKLIST;
-
 pub use blockchain::Blockchain;
 pub use pool_id::PoolId;
+pub use state_manager::state_manager::StateManager;
+pub use virtual_reserves::VirtualReserves;
 
 pub mod uniswap {
     pub mod v2 {

@@ -1,9 +1,4 @@
-use alloy::{
-    primitives::{Address, Bytes, FixedBytes},
-    providers::fillers::RecommendedFillers,
-    rpc::types::Log,
-    sol_types::SolEvent,
-};
+use alloy::{primitives::FixedBytes, providers::fillers::RecommendedFillers, sol_types::SolEvent};
 use anyhow::{Result, anyhow};
 use std::{
     collections::{HashMap, HashSet},
@@ -13,335 +8,310 @@ use tokio::{sync::mpsc, task::JoinHandle};
 
 use crate::{
     Blockchain,
-    blockchain::BlockchainNetwork,
-    evm_network, multicall, pancakeswap_internal as pancakeswap,
+    blockchain::{BlockNumber, BlockchainNetwork},
+    evm_network, pancakeswap_internal as pancakeswap,
     pool_id::PoolId,
-    rpc::{self, client::NetworkProvider, multicall_data::MulticallData},
-    state_manager::pool_reserves_calls::PoolReservesCalls,
-    tokens::Token,
+    rpc,
+    state_manager::{
+        event::{Event, EventId, EventInfo},
+        protocol_addresses::ProtocolAddresses,
+    },
+    tokens::{TokenAddress, TokenInfo},
     uniswap_internal as uniswap,
     virtual_reserves::VirtualReserves,
 };
 
-type RpcClientEthereum =
-    rpc::client::RpcClient<evm_network::Ethereum, NetworkProvider<evm_network::Ethereum>>;
-type RpcClientBSC = rpc::client::RpcClient<evm_network::BSC, NetworkProvider<evm_network::BSC>>;
-type RpcClientArbitrum =
-    rpc::client::RpcClient<evm_network::Arbitrum, NetworkProvider<evm_network::Arbitrum>>;
-
-fn uniswap_v2_id(address: Address, blockchain: Blockchain) -> PoolId {
-    PoolId::UniswapV2(uniswap::v2::pool::PoolAddress(address, blockchain))
-}
-
-fn uniswap_v3_id(address: Address, blockchain: Blockchain) -> PoolId {
-    PoolId::UniswapV3(uniswap::v3::pool::PoolAddress(address, blockchain))
-}
-
-fn uniswap_v4_id(id: FixedBytes<32>, blockchain: Blockchain) -> PoolId {
-    PoolId::UniswapV4(uniswap::v4::pool::PoolId(id, blockchain))
-}
-
-fn pancakeswap_v3_id(address: Address, blockchain: Blockchain) -> PoolId {
-    PoolId::PancakeSwap(pancakeswap::v3::pool::PoolAddress(address, blockchain))
-}
-
-fn try_get_topic1(log: Log) -> Result<FixedBytes<32>> {
-    log.topics()
-        .get(1)
-        .map(|topic| *topic)
-        .ok_or(anyhow!("Failed to read topic1 from the Log\n{:?}", log))
-}
+const TOPICS: [FixedBytes<32>; 10] = [
+    uniswap::v2::contract::Pair::Mint::SIGNATURE_HASH,
+    uniswap::v2::contract::Pair::Burn::SIGNATURE_HASH,
+    uniswap::v2::contract::Pair::Swap::SIGNATURE_HASH,
+    uniswap::v2::contract::Pair::Sync::SIGNATURE_HASH,
+    uniswap::v3::contract::Pool::Mint::SIGNATURE_HASH,
+    uniswap::v3::contract::Pool::Burn::SIGNATURE_HASH,
+    uniswap::v3::contract::Pool::Swap::SIGNATURE_HASH,
+    uniswap::v4::contract::PoolManager::ModifyLiquidity::SIGNATURE_HASH,
+    uniswap::v4::contract::PoolManager::Swap::SIGNATURE_HASH,
+    uniswap::v4::contract::PoolManager::Donate::SIGNATURE_HASH,
+];
 
 pub struct StateManager {
-    states: HashMap<PoolId, Option<VirtualReserves>>,
-    rpc_client_ethereum: RpcClientEthereum,
-    rpc_client_bsc: RpcClientBSC,
-    rpc_client_arbitrum: RpcClientArbitrum,
-}
-
-struct ProtocolAddresses {
-    blockchain: Blockchain,
-    v2: HashMap<Address, fn(Address, Blockchain) -> PoolId>,
-    v3: HashMap<Address, fn(Address, Blockchain) -> PoolId>,
-    v4: HashMap<FixedBytes<32>, fn(FixedBytes<32>, Blockchain) -> PoolId>,
-}
-
-impl ProtocolAddresses {
-    pub fn new(blockchain: Blockchain) -> Self {
-        Self {
-            blockchain,
-            v2: HashMap::new(),
-            v3: HashMap::new(),
-            v4: HashMap::new(),
-        }
-    }
-
-    pub fn lookup(&self, log: Log) -> Result<Option<PoolId>> {
-        match log.topic0() {
-            // V2 protocol
-            Some(&uniswap::v2::contract::Pair::Swap::SIGNATURE_HASH) => Ok(self
-                .v2
-                .get(&log.address())
-                .map(|construct_id_fn| construct_id_fn(log.address(), self.blockchain))),
-            Some(&uniswap::v2::contract::Pair::Mint::SIGNATURE_HASH) => Ok(self
-                .v2
-                .get(&log.address())
-                .map(|construct_id_fn| construct_id_fn(log.address(), self.blockchain))),
-            Some(&uniswap::v2::contract::Pair::Burn::SIGNATURE_HASH) => Ok(self
-                .v2
-                .get(&log.address())
-                .map(|construct_id_fn| construct_id_fn(log.address(), self.blockchain))),
-            Some(&uniswap::v2::contract::Pair::Sync::SIGNATURE_HASH) => Ok(self
-                .v2
-                .get(&log.address())
-                .map(|construct_id_fn| construct_id_fn(log.address(), self.blockchain))),
-
-            // V3 protocol
-            Some(&uniswap::v3::contract::Pool::Swap::SIGNATURE_HASH) => Ok(self
-                .v3
-                .get(&log.address())
-                .map(|construct_id_fn| construct_id_fn(log.address(), self.blockchain))),
-            Some(&uniswap::v3::contract::Pool::Mint::SIGNATURE_HASH) => Ok(self
-                .v3
-                .get(&log.address())
-                .map(|construct_id_fn| construct_id_fn(log.address(), self.blockchain))),
-            Some(&uniswap::v3::contract::Pool::Burn::SIGNATURE_HASH) => Ok(self
-                .v3
-                .get(&log.address())
-                .map(|construct_id_fn| construct_id_fn(log.address(), self.blockchain))),
-
-            // V4 protocol
-            Some(&uniswap::v4::contract::PoolManager::ModifyLiquidity::SIGNATURE_HASH) => {
-                let id = try_get_topic1(log)?;
-                Ok(self
-                    .v4
-                    .get(&id)
-                    .map(|construct_id_fn| construct_id_fn(id, self.blockchain)))
-            }
-            Some(&uniswap::v4::contract::PoolManager::Swap::SIGNATURE_HASH) => {
-                let id = try_get_topic1(log)?;
-                Ok(self
-                    .v4
-                    .get(&id)
-                    .map(|construct_id_fn| construct_id_fn(id, self.blockchain)))
-            }
-            Some(&uniswap::v4::contract::PoolManager::Donate::SIGNATURE_HASH) => {
-                let id = try_get_topic1(log)?;
-                Ok(self
-                    .v4
-                    .get(&id)
-                    .map(|construct_id_fn| construct_id_fn(id, self.blockchain)))
-            }
-
-            Some(unknown_event_hash) => Err(anyhow!(
-                "Unknown event hash {} in the log\n{:?}",
-                unknown_event_hash,
-                log
-            )),
-            None => Err(anyhow!("Failed to read topic0 from the Log\n{:?}", log)),
-        }
-    }
-}
-
-struct PoolAddressesMap {
-    ethereum: ProtocolAddresses,
-    bsc: ProtocolAddresses,
-    arbitrum: ProtocolAddresses,
-}
-
-impl PoolAddressesMap {
-    fn new() -> Self {
-        Self {
-            ethereum: ProtocolAddresses::new(Blockchain::Ethereum),
-            bsc: ProtocolAddresses::new(Blockchain::BSC),
-            arbitrum: ProtocolAddresses::new(Blockchain::Arbitrum),
-        }
-    }
-
-    fn get(&mut self, blockchain: Blockchain) -> &mut ProtocolAddresses {
-        match blockchain {
-            Blockchain::Ethereum => &mut self.ethereum,
-            Blockchain::BSC => &mut self.bsc,
-            Blockchain::Arbitrum => &mut self.arbitrum,
-        }
-    }
+    protocol_addresses_ethereum: ProtocolAddresses<evm_network::Ethereum>,
+    protocol_addresses_bsc: ProtocolAddresses<evm_network::BSC>,
+    protocol_addresses_arbitrum: ProtocolAddresses<evm_network::Arbitrum>,
 }
 
 impl StateManager {
-    async fn get_reserves(
-        &self,
-        ids: &[PoolId],
-        lookup_uniswap_v2_pool_info: impl Fn(
-            &uniswap::v2::pool::PoolAddress,
-        ) -> Option<&uniswap::v2::pool::PoolInfo>,
-        lookup_uniswap_v3_pool_info: impl Fn(
-            &uniswap::v3::pool::PoolAddress,
-        ) -> Option<&uniswap::v3::pool::PoolInfo>,
-        lookup_uniswap_v4_pool_info: impl Fn(
-            &uniswap::v4::pool::PoolId,
-        ) -> Option<&uniswap::v4::pool::PoolInfo>,
-        lookup_pancakeswap_pool_info: impl Fn(
-            &pancakeswap::v3::pool::PoolAddress,
-        ) -> Option<&pancakeswap::v3::pool::PoolInfo>,
-    ) -> Result<HashMap<PoolId, VirtualReserves>> {
-        let PoolReservesCalls {
-            ethereum,
-            bsc,
-            arbitrum,
-        } = ids.into_iter().try_fold(
-            PoolReservesCalls::new(),
-            |calls, id| -> Result<PoolReservesCalls> {
-                match id {
-                    PoolId::UniswapV2(pool_address) => calls.with_uniswap_v2_call(
-                        pool_address,
-                        lookup_uniswap_v2_pool_info(pool_address)
-                            .ok_or(anyhow!("pool info not found for pool id {:?}", id))?,
-                    ),
-                    PoolId::UniswapV3(pool_address) => calls.with_uniswap_v3_call(
-                        pool_address,
-                        lookup_uniswap_v3_pool_info(pool_address)
-                            .ok_or(anyhow!("pool info not found for pool id {:?}", id))?,
-                    ),
-                    PoolId::UniswapV4(pool_id) => calls.with_uniswap_v4_call(
-                        pool_id,
-                        lookup_uniswap_v4_pool_info(pool_id)
-                            .ok_or(anyhow!("pool info not found for pool id {:?}", id))?,
-                    ),
-                    PoolId::PancakeSwap(pool_address) => calls.with_pancakeswap_v3_call(
-                        pool_address,
-                        lookup_pancakeswap_pool_info(pool_address)
-                            .ok_or(anyhow!("pool info not found for pool id {:?}", id))?,
-                    ),
+    pub fn new() -> Self {
+        Self {
+            protocol_addresses_ethereum: ProtocolAddresses::new(),
+            protocol_addresses_bsc: ProtocolAddresses::new(),
+            protocol_addresses_arbitrum: ProtocolAddresses::new(),
+        }
+    }
+
+    fn with_ethereum_protocol_address(
+        self,
+        update_fn: impl Fn(
+            ProtocolAddresses<evm_network::Ethereum>,
+        ) -> ProtocolAddresses<evm_network::Ethereum>,
+    ) -> Self {
+        Self {
+            protocol_addresses_ethereum: update_fn(self.protocol_addresses_ethereum),
+            protocol_addresses_bsc: self.protocol_addresses_bsc,
+            protocol_addresses_arbitrum: self.protocol_addresses_arbitrum,
+        }
+    }
+
+    fn with_bsc_protocol_address(
+        self,
+        update_fn: impl Fn(ProtocolAddresses<evm_network::BSC>) -> ProtocolAddresses<evm_network::BSC>,
+    ) -> Self {
+        Self {
+            protocol_addresses_ethereum: self.protocol_addresses_ethereum,
+            protocol_addresses_bsc: update_fn(self.protocol_addresses_bsc),
+            protocol_addresses_arbitrum: self.protocol_addresses_arbitrum,
+        }
+    }
+
+    fn with_arbitrum_protocol_address(
+        self,
+        update_fn: impl Fn(
+            ProtocolAddresses<evm_network::Arbitrum>,
+        ) -> ProtocolAddresses<evm_network::Arbitrum>,
+    ) -> Self {
+        Self {
+            protocol_addresses_ethereum: self.protocol_addresses_ethereum,
+            protocol_addresses_bsc: self.protocol_addresses_bsc,
+            protocol_addresses_arbitrum: update_fn(self.protocol_addresses_arbitrum),
+        }
+    }
+
+    pub fn from_pools(pools: &HashSet<PoolId>) -> Self {
+        pools
+            .into_iter()
+            .fold(Self::new(), |events_manager, pool_id| match pool_id {
+                PoolId::UniswapV2(uniswap::v2::pool::PoolAddress(
+                    address,
+                    Blockchain::Ethereum,
+                )) => events_manager.with_ethereum_protocol_address(|pa| {
+                    pa.with_v2_address(*address, EventId::UniswapV2)
+                }),
+                PoolId::UniswapV2(uniswap::v2::pool::PoolAddress(address, Blockchain::BSC)) => {
+                    events_manager.with_bsc_protocol_address(|pa| {
+                        pa.with_v2_address(*address, EventId::UniswapV2)
+                    })
                 }
-            },
-        )?;
+                PoolId::UniswapV2(uniswap::v2::pool::PoolAddress(
+                    address,
+                    Blockchain::Arbitrum,
+                )) => events_manager.with_arbitrum_protocol_address(|pa| {
+                    pa.with_v2_address(*address, EventId::UniswapV2)
+                }),
 
-        let ethereum_block_number = self.rpc_client_ethereum.get_block_number().await?;
-        let ethereum_reserves = self
-            .rpc_client_ethereum
-            .get_multicall(&ethereum, ethereum_block_number)
-            .await?
-            .into_iter()
-            .collect::<Result<Vec<_>>>()?;
+                PoolId::UniswapV3(uniswap::v3::pool::PoolAddress(
+                    address,
+                    Blockchain::Ethereum,
+                )) => events_manager.with_ethereum_protocol_address(|pa| {
+                    pa.with_v3_address(*address, EventId::UniswapV3)
+                }),
+                PoolId::UniswapV3(uniswap::v3::pool::PoolAddress(address, Blockchain::BSC)) => {
+                    events_manager.with_bsc_protocol_address(|pa| {
+                        pa.with_v3_address(*address, EventId::UniswapV3)
+                    })
+                }
+                PoolId::UniswapV3(uniswap::v3::pool::PoolAddress(
+                    address,
+                    Blockchain::Arbitrum,
+                )) => events_manager.with_arbitrum_protocol_address(|pa| {
+                    pa.with_v3_address(*address, EventId::UniswapV3)
+                }),
 
-        let bsc_block_number = self.rpc_client_bsc.get_block_number().await?;
-        let bsc_reserves = self
-            .rpc_client_bsc
-            .get_multicall(&bsc, bsc_block_number)
-            .await?
-            .into_iter()
-            .collect::<Result<Vec<_>>>()?;
+                PoolId::UniswapV4(uniswap::v4::pool::PoolId(id, Blockchain::Ethereum)) => {
+                    events_manager
+                        .with_ethereum_protocol_address(|pa| pa.with_v4_id(*id, EventId::UniswapV4))
+                }
+                PoolId::UniswapV4(uniswap::v4::pool::PoolId(id, Blockchain::BSC)) => events_manager
+                    .with_bsc_protocol_address(|pa| pa.with_v4_id(*id, EventId::UniswapV4)),
+                PoolId::UniswapV4(uniswap::v4::pool::PoolId(id, Blockchain::Arbitrum)) => {
+                    events_manager
+                        .with_arbitrum_protocol_address(|pa| pa.with_v4_id(*id, EventId::UniswapV4))
+                }
 
-        let arbitrum_block_number = self.rpc_client_arbitrum.get_block_number().await?;
-        let arbitrum_reserves = self
-            .rpc_client_arbitrum
-            .get_multicall(&arbitrum, arbitrum_block_number)
-            .await?
-            .into_iter()
-            .collect::<Result<Vec<_>>>()?;
-
-        Ok(ethereum_reserves
-            .into_iter()
-            .chain(bsc_reserves.into_iter())
-            .chain(arbitrum_reserves.into_iter())
-            .collect())
+                PoolId::PancakeSwap(pancakeswap::v3::pool::PoolAddress(
+                    address,
+                    Blockchain::Ethereum,
+                )) => events_manager.with_ethereum_protocol_address(|pa| {
+                    pa.with_v3_address(*address, EventId::PancakeSwap)
+                }),
+                PoolId::PancakeSwap(pancakeswap::v3::pool::PoolAddress(
+                    address,
+                    Blockchain::BSC,
+                )) => events_manager.with_bsc_protocol_address(|pa| {
+                    pa.with_v3_address(*address, EventId::PancakeSwap)
+                }),
+                PoolId::PancakeSwap(pancakeswap::v3::pool::PoolAddress(
+                    address,
+                    Blockchain::Arbitrum,
+                )) => events_manager.with_arbitrum_protocol_address(|pa| {
+                    pa.with_v3_address(*address, EventId::PancakeSwap)
+                }),
+            })
     }
 
-    pub async fn init(ids: &[PoolId]) -> Result<Self> {
-        let (sender, receiver) = mpsc::unbounded_channel::<PoolId>(); // TODO: use bounded channel and handle channel saturation
-
-        let states = ids.iter().map(|id| (*id, None)).collect();
-
-        let rpc_client_ethereum: RpcClientEthereum = rpc::client::init_client().await?;
-        let rpc_client_bsc: RpcClientBSC = rpc::client::init_client().await?;
-        let rpc_client_arbitrum: RpcClientArbitrum = rpc::client::init_client().await?;
-
-        let PoolAddressesMap {
-            ethereum,
-            bsc,
-            arbitrum,
-        } = ids
-            .iter()
-            .fold(PoolAddressesMap::new(), |mut blockchain_maps, &id| {
-                match id {
-                    PoolId::UniswapV2(uniswap::v2::pool::PoolAddress(address, blockchain)) => {
-                        blockchain_maps
-                            .get(blockchain)
-                            .v2
-                            .entry(address)
-                            .or_insert(uniswap_v2_id);
-                    }
-                    PoolId::UniswapV3(uniswap::v3::pool::PoolAddress(address, blockchain)) => {
-                        blockchain_maps
-                            .get(blockchain)
-                            .v3
-                            .entry(address)
-                            .or_insert(uniswap_v3_id);
-                    }
-                    PoolId::PancakeSwap(pancakeswap::v3::pool::PoolAddress(
-                        address,
-                        blockchain,
-                    )) => {
-                        blockchain_maps
-                            .get(blockchain)
-                            .v3
-                            .entry(address)
-                            .or_insert(pancakeswap_v3_id);
-                    }
-                    PoolId::UniswapV4(uniswap::v4::pool::PoolId(address, blockchain)) => {
-                        blockchain_maps
-                            .get(blockchain)
-                            .v4
-                            .entry(address)
-                            .or_insert(uniswap_v4_id);
-                    }
-                };
-                blockchain_maps
-            });
-
-        let topics = HashSet::from([
-            uniswap::v2::contract::Pair::Mint::SIGNATURE_HASH,
-            uniswap::v2::contract::Pair::Burn::SIGNATURE_HASH,
-            uniswap::v2::contract::Pair::Swap::SIGNATURE_HASH,
-            uniswap::v2::contract::Pair::Sync::SIGNATURE_HASH,
-            uniswap::v3::contract::Pool::Mint::SIGNATURE_HASH,
-            uniswap::v3::contract::Pool::Burn::SIGNATURE_HASH,
-            uniswap::v3::contract::Pool::Swap::SIGNATURE_HASH,
-            uniswap::v4::contract::PoolManager::ModifyLiquidity::SIGNATURE_HASH,
-            uniswap::v4::contract::PoolManager::Swap::SIGNATURE_HASH,
-            uniswap::v4::contract::PoolManager::Donate::SIGNATURE_HASH,
-        ]);
-
-        let ethereum_map_arc = Arc::new(ethereum);
-        let bsc_map_arc = Arc::new(bsc);
-        let arbitrum_map_arc = Arc::new(arbitrum);
-
-        let sub_eth_handle = rpc::client::subscribe_topics::<PoolId, evm_network::Ethereum>(
+    pub async fn subscribe_reserves(
+        self,
+        sender: mpsc::UnboundedSender<Vec<(PoolId, VirtualReserves)>>,
+        tokens: Arc<HashMap<TokenAddress, TokenInfo>>,
+        uniswap_v2_pools: Arc<HashMap<uniswap::v2::pool::PoolAddress, uniswap::v2::pool::PoolInfo>>,
+        uniswap_v3_pools: Arc<HashMap<uniswap::v3::pool::PoolAddress, uniswap::v3::pool::PoolInfo>>,
+        uniswap_v4_pools: Arc<HashMap<uniswap::v4::pool::PoolId, uniswap::v4::pool::PoolInfo>>,
+        pancake_swap_pools: Arc<
+            HashMap<pancakeswap::v3::pool::PoolAddress, pancakeswap::v3::pool::PoolInfo>,
+        >,
+    ) -> Result<(JoinHandle<Result<()>>, HashMap<PoolId, VirtualReserves>)> {
+        let (ethereum_join_handle, initial_reserves_ethereum) = subscribe_reserve_updates(
             sender.clone(),
-            topics.clone(),
-            move |log| ethereum_map_arc.clone().lookup(log).unwrap(), // TODO: Handle event parsing errors
+            Arc::new(self.protocol_addresses_ethereum),
+            tokens.clone(),
+            uniswap_v2_pools.clone(),
+            uniswap_v3_pools.clone(),
+            uniswap_v4_pools.clone(),
+            pancake_swap_pools.clone(),
+        )
+        .await?;
+        let (bsc_join_handle, initial_reserves_bsc) = subscribe_reserve_updates(
+            sender.clone(),
+            Arc::new(self.protocol_addresses_bsc),
+            tokens.clone(),
+            uniswap_v2_pools.clone(),
+            uniswap_v3_pools.clone(),
+            uniswap_v4_pools.clone(),
+            pancake_swap_pools.clone(),
+        )
+        .await?;
+        let (arbitrum_join_handle, initial_reserves_arbitrum) = subscribe_reserve_updates(
+            sender.clone(),
+            Arc::new(self.protocol_addresses_arbitrum),
+            tokens.clone(),
+            uniswap_v2_pools.clone(),
+            uniswap_v3_pools.clone(),
+            uniswap_v4_pools.clone(),
+            pancake_swap_pools.clone(),
         )
         .await?;
 
-        let sub_bsc_handle = rpc::client::subscribe_topics::<PoolId, evm_network::BSC>(
-            sender.clone(),
-            topics.clone(),
-            move |log| bsc_map_arc.clone().lookup(log).unwrap(), // TODO: Handle event parsing errors
-        )
-        .await?;
-
-        let sub_arbitrum_handle = rpc::client::subscribe_topics::<PoolId, evm_network::Arbitrum>(
-            sender.clone(),
-            topics.clone(),
-            move |log| arbitrum_map_arc.clone().lookup(log).unwrap(), // TODO: Handle event parsing errors
-        )
-        .await?;
-
-        Ok(Self {
-            states,
-            rpc_client_ethereum,
-            rpc_client_bsc,
-            rpc_client_arbitrum,
-        })
+        let combined_join_handle = tokio::spawn(async move {
+            tokio::try_join!(ethereum_join_handle, bsc_join_handle, arbitrum_join_handle)
+                .map_err(|_| anyhow!("Failed to join handles"))
+                .and_then(|(a, b, c)| a.and(b).and(c))
+        });
+        let combined_initial_reserves = initial_reserves_ethereum
+            .into_iter()
+            .chain(initial_reserves_bsc.into_iter())
+            .chain(initial_reserves_arbitrum.into_iter())
+            .collect::<HashMap<PoolId, VirtualReserves>>();
+        Ok((combined_join_handle, combined_initial_reserves))
     }
+}
+
+async fn subscribe_reserve_updates<B: BlockchainNetwork + RecommendedFillers>(
+    sender: mpsc::UnboundedSender<Vec<(PoolId, VirtualReserves)>>,
+    protocol_addresses: Arc<ProtocolAddresses<B>>,
+    tokens: Arc<HashMap<TokenAddress, TokenInfo>>,
+    uniswap_v2_pools: Arc<HashMap<uniswap::v2::pool::PoolAddress, uniswap::v2::pool::PoolInfo>>,
+    uniswap_v3_pools: Arc<HashMap<uniswap::v3::pool::PoolAddress, uniswap::v3::pool::PoolInfo>>,
+    uniswap_v4_pools: Arc<HashMap<uniswap::v4::pool::PoolId, uniswap::v4::pool::PoolInfo>>,
+    pancake_swap_pools: Arc<
+        HashMap<pancakeswap::v3::pool::PoolAddress, pancakeswap::v3::pool::PoolInfo>,
+    >,
+) -> Result<(JoinHandle<Result<()>>, Vec<(PoolId, VirtualReserves)>)> {
+    println!("Subscribing to pool updates on {}", {
+        B::BLOCKCHAIN.name()
+    });
+    let (events_sender, mut events_receiver) = mpsc::unbounded_channel::<Event<B>>();
+
+    let protocol_addresses_clone = protocol_addresses.clone();
+
+    let rpc_client = rpc::client::init_client::<B>().await?;
+
+    rpc::client::subscribe_topics::<Event<B>, B>(
+        events_sender.clone(),
+        HashSet::from(TOPICS),
+        move |log| protocol_addresses_clone.try_lookup(log).unwrap(), // TODO: Handle event parsing errors
+    )
+    .await?;
+
+    let block_number = rpc_client.get_block_number().await?;
+    let initial_calls = protocol_addresses.initial_calls(
+        tokens.as_ref(),
+        uniswap_v2_pools.as_ref(),
+        uniswap_v3_pools.as_ref(),
+        uniswap_v4_pools.as_ref(),
+        pancake_swap_pools.as_ref(),
+    )?;
+
+    let initial_reserves = rpc_client
+        .get_multicall(&initial_calls, block_number)
+        .await?
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
+
+    let handle = tokio::spawn(async move {
+        loop {
+            let mut buffer = Vec::new();
+            let received_count = events_receiver.recv_many(&mut buffer, 1000).await;
+
+            println!("{} received", received_count);
+
+            if let Some((head, tail)) = buffer.split_first() {
+                let (events_map, block_number) = tail.into_iter().fold(
+                    (
+                        HashMap::<EventId, &EventInfo<B>>::from([(head.id, &head.info)]),
+                        head.info.block_number,
+                    ),
+                    |(mut events, latest_block_number), event| {
+                        events
+                            .entry(event.id)
+                            .and_modify(|existing| {
+                                if existing.block_number.value() < event.info.block_number.value() {
+                                    *existing = &event.info;
+                                }
+                            })
+                            .or_insert_with(|| &event.info);
+                        (
+                            events,
+                            BlockNumber::pick_latest(latest_block_number, event.info.block_number),
+                        )
+                    },
+                );
+
+                let calls = events_map
+                    .into_iter()
+                    .map(|(event_id, _)| {
+                        event_id.into_call_data(
+                            tokens.as_ref(),
+                            uniswap_v2_pools.as_ref(),
+                            uniswap_v3_pools.as_ref(),
+                            uniswap_v4_pools.as_ref(),
+                            pancake_swap_pools.as_ref(),
+                        )
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+
+                let updated_reserves = rpc_client
+                    .get_multicall(&calls, block_number)
+                    .await?
+                    .into_iter()
+                    .collect::<Result<Vec<_>>>()?;
+
+                sender.send(updated_reserves)?;
+            } else {
+                println!("Logs subscription terminated");
+                break;
+            }
+        }
+        Ok(())
+    });
+
+    Ok((handle, initial_reserves))
 }

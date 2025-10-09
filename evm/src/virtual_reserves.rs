@@ -6,4 +6,5 @@ pub struct VirtualReserves {
     pub token1: Decimal,
     pub max_swap0: Decimal,
     pub max_swap1: Decimal,
+    pub fee_multiplier: Decimal,
 }
