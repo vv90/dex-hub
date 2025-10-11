@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
 use crate::blockchain::Blockchain;
 use crate::pancakeswap::v3::PoolInfo;
@@ -9,7 +10,7 @@ use crate::{
     pancakeswap_internal::v3::pool::{Fee, PoolAddress, fee_from_int},
     utils::u32_from_str,
 };
-use alloy::primitives::Address;
+use alloy::primitives::{Address, address};
 use anyhow::Result;
 use rust_decimal::Decimal;
 use serde::Deserialize;
@@ -68,15 +69,21 @@ fn map_pools(
                 },
             };
 
-            pools.push(pool);
-            tokens.entry(token0_address).or_insert_with(|| TokenInfo {
-                decimals: pool_data.token0.decimals,
-                symbol: pool_data.token0.symbol,
-            });
-            tokens.entry(token1_address).or_insert_with(|| TokenInfo {
-                decimals: pool_data.token1.decimals,
-                symbol: pool_data.token1.symbol,
-            });
+            // TODO: Temporary workaround for the reserves value overflow
+            // in rare cases, a combination of small decimal places and large reserves
+            // can cause an overflow when converting reserves into decimal
+            // a proper solution would be to adjust decimal places (if needed) for each token
+            if !BLACKLIST.contains(&pool.address) {
+                pools.push(pool);
+                tokens.entry(token0_address).or_insert_with(|| TokenInfo {
+                    decimals: pool_data.token0.decimals,
+                    symbol: pool_data.token0.symbol,
+                });
+                tokens.entry(token1_address).or_insert_with(|| TokenInfo {
+                    decimals: pool_data.token1.decimals,
+                    symbol: pool_data.token1.symbol,
+                });
+            }
 
             (pools, tokens)
         },
@@ -129,4 +136,10 @@ pub async fn get_pools(
         Blockchain::Arbitrum => ARBITRUM.query_pools(min_value).await,
     }
 }
-// 0x7837afeD5d6176873F80F550FaC452dBDDBe03A9
+
+const BLACKLIST: LazyLock<HashSet<PoolAddress>> = LazyLock::new(|| {
+    HashSet::from([PoolAddress(
+        address!("0x7837afeD5d6176873F80F550FaC452dBDDBe03A9"),
+        Blockchain::BSC,
+    )])
+});
