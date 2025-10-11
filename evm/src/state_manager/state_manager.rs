@@ -1,10 +1,11 @@
 use alloy::{primitives::FixedBytes, providers::fillers::RecommendedFillers, sol_types::SolEvent};
 use anyhow::{Result, anyhow};
+use futures_util::{Stream, StreamExt, TryStreamExt};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{stream, sync::mpsc, task::JoinHandle};
 
 use crate::{
     Blockchain,
@@ -14,6 +15,7 @@ use crate::{
     rpc,
     state_manager::{
         event::{Event, EventId, EventInfo},
+        pool_reserves_calls::ReservesCallData,
         protocol_addresses::ProtocolAddresses,
     },
     tokens::{TokenAddress, TokenInfo},
@@ -250,11 +252,21 @@ async fn subscribe_reserve_updates<B: BlockchainNetwork + RecommendedFillers>(
         pancake_swap_pools.as_ref(),
     )?;
 
-    let initial_reserves = rpc_client
-        .get_multicall(&initial_calls, block_number)
-        .await?
-        .into_iter()
-        .collect::<Result<Vec<_>>>()?;
+    let initial_reserves = futures_util::stream::iter(initial_calls.chunks(1000))
+        .map(Ok::<&[ReservesCallData<B>], anyhow::Error>)
+        .try_fold(
+            Vec::<(PoolId, VirtualReserves)>::new(),
+            async |mut combined_reserves, chunk| {
+                let reserves = rpc_client
+                    .get_multicall(chunk, block_number)
+                    .await?
+                    .into_iter()
+                    .collect::<Result<Vec<_>, _>>()?;
+                combined_reserves.extend(reserves);
+                Ok(combined_reserves)
+            },
+        )
+        .await?;
 
     let handle = tokio::spawn(async move {
         loop {
@@ -302,7 +314,7 @@ async fn subscribe_reserve_updates<B: BlockchainNetwork + RecommendedFillers>(
                     .get_multicall(&calls, block_number)
                     .await?
                     .into_iter()
-                    .collect::<Result<Vec<_>>>()?;
+                    .collect::<Result<Vec<_>, _>>()?;
 
                 sender.send(updated_reserves)?;
             } else {

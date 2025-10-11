@@ -4,7 +4,6 @@ use alloy::{
     primitives::{Address, Bytes},
     sol_types::SolCall,
 };
-use anyhow::{Result, anyhow};
 use rust_decimal_macros::dec;
 
 use crate::{
@@ -26,6 +25,27 @@ pub struct ReservesCallData<B: BlockchainNetwork> {
     _blockchain_marker: PhantomData<fn() -> B>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ReservesCallDataDecodeError {
+    pub message: String,
+    pub pool_address: PoolAddress,
+}
+
+impl std::error::Error for ReservesCallDataDecodeError {}
+
+impl std::fmt::Display for ReservesCallDataDecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let PoolAddress(address, blockchain) = self.pool_address;
+        write!(
+            f,
+            "Failed to decode reserves call data for {} Uniswap V2 pool {}: {}",
+            blockchain.name(),
+            address,
+            self.message
+        )
+    }
+}
+
 impl<B: BlockchainNetwork> ReservesCallData<B> {
     pub fn new(pool_address: Address, token0: &TokenInfo, token1: &TokenInfo) -> Self {
         Self {
@@ -35,12 +55,20 @@ impl<B: BlockchainNetwork> ReservesCallData<B> {
             _blockchain_marker: PhantomData,
         }
     }
+
+    fn decode_error(&self, message: String) -> ReservesCallDataDecodeError {
+        ReservesCallDataDecodeError {
+            message: message.into(),
+            pool_address: PoolAddress(self.pool_address, B::BLOCKCHAIN),
+        }
+    }
 }
 
 impl<B: BlockchainNetwork> MulticallData<B> for ReservesCallData<B> {
     type Calls = [multicall::Multicall3::Call; 1];
     // type Output = VirtualReserves<PoolAddress>;
     type Output = (PoolAddress, VirtualReserves);
+    type DecodeError = ReservesCallDataDecodeError;
 
     fn size(&self) -> usize {
         1
@@ -55,16 +83,26 @@ impl<B: BlockchainNetwork> MulticallData<B> for ReservesCallData<B> {
         }]
     }
 
-    fn decode_output(&self, response: &[Bytes]) -> Result<Self::Output> {
-        let reserves_bytes = response.get(0).ok_or(anyhow!("Missing reserves data"))?;
+    fn decode_output(&self, response: &[Bytes]) -> Result<Self::Output, Self::DecodeError> {
+        let reserves_bytes = response
+            .get(0)
+            .ok_or_else(|| self.decode_error("Missing reserves data".into()))?;
         if let Some(_) = response.get(1) {
-            Err(anyhow!("Invalid response data size"))
+            Err(self.decode_error("Invalid response data size".into()))
         } else {
-            let reserves_output =
-                contract::Pair::getReservesCall::abi_decode_returns(reserves_bytes)?;
+            let reserves_output = contract::Pair::getReservesCall::abi_decode_returns(
+                reserves_bytes,
+            )
+            .map_err(|e| self.decode_error(format!("Failed to decode reserves data: {}", e)))?;
 
-            let reserve_0 = try_into_decimal(reserves_output.reserve0, self.token0_decimals)?;
-            let reserve_1 = try_into_decimal(reserves_output.reserve1, self.token1_decimals)?;
+            let reserve_0 = try_into_decimal(reserves_output.reserve0, self.token0_decimals)
+                .map_err(|e| {
+                    self.decode_error(format!("Failed to convert reserve0 to decimal: {}", e))
+                })?;
+            let reserve_1 = try_into_decimal(reserves_output.reserve1, self.token1_decimals)
+                .map_err(|e| {
+                    self.decode_error(format!("Failed to convert reserve1 to decimal: {}", e))
+                })?;
 
             Ok((
                 PoolAddress(self.pool_address, B::BLOCKCHAIN),

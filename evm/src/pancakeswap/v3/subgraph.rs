@@ -129,3 +129,4 @@ pub async fn get_pools(
         Blockchain::Arbitrum => ARBITRUM.query_pools(min_value).await,
     }
 }
+// 0x7837afeD5d6176873F80F550FaC452dBDDBe03A9

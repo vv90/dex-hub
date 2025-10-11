@@ -192,7 +192,7 @@ impl<B: BlockchainNetwork, T: Provider<B>> RpcClient<B, T> {
         &self,
         calls_data: &[D],
         block_number: BlockNumber<B>,
-    ) -> Result<Vec<Result<D::Output>>> {
+    ) -> Result<Vec<Result<D::Output, D::DecodeError>>> {
         let calls = calls_data
             .iter()
             .flat_map(|data| data.to_calls())
@@ -217,8 +217,8 @@ impl<B: BlockchainNetwork, T: Provider<B>> RpcClient<B, T> {
         let decoded_response = multicall::Multicall3::aggregateCall::abi_decode_returns(&response)?;
 
         let (_, results) = calls_data.into_iter().fold(
-            (0, Vec::<Result<D::Output>>::new()),
-            |(position, mut collection), data| -> (usize, Vec<Result<D::Output>>) {
+            (0, Vec::<Result<D::Output, D::DecodeError>>::new()),
+            |(position, mut collection), data| -> (usize, Vec<Result<D::Output, D::DecodeError>>) {
                 let next_position = position + data.size();
                 let item =
                     data.decode_output(&decoded_response.returnData[position..next_position]);

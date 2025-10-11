@@ -97,7 +97,7 @@ async fn get_bridges_recursive<B: BlockchainNetwork, P: Provider<B>>(
         .get_multicall(remote_tokens_calls_data.as_slice(), block_number)
         .await?
         .into_iter()
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>, _>>()?;
 
     let new_bridges = new_remote_tokens
         .into_iter()
