@@ -1,10 +1,7 @@
-use std::collections::HashMap;
-
 use crate::{
     blockchain::{BlockNumber, BlockchainNetwork},
     pancakeswap_internal as pancakeswap,
-    state_manager::pool_reserves_calls::ReservesCallData,
-    tokens::{TokenAddress, TokenInfo},
+    state_manager::{dex_info::DexInfo, pool_reserves_calls::ReservesCallData},
     uniswap_internal as uniswap,
 };
 use alloy::primitives::{Address, FixedBytes};
@@ -45,25 +42,21 @@ impl<B: BlockchainNetwork> Event<B> {
 impl EventId {
     pub fn into_call_data<B: BlockchainNetwork>(
         self,
-        tokens: &HashMap<TokenAddress, TokenInfo>,
-        uniswap_v2_pools: &HashMap<uniswap::v2::pool::PoolAddress, uniswap::v2::pool::PoolInfo>,
-        uniswap_v3_pools: &HashMap<uniswap::v3::pool::PoolAddress, uniswap::v3::pool::PoolInfo>,
-        uniswap_v4_pools: &HashMap<uniswap::v4::pool::PoolId, uniswap::v4::pool::PoolInfo>,
-        pancake_swap_pools: &HashMap<
-            pancakeswap::v3::pool::PoolAddress,
-            pancakeswap::v3::pool::PoolInfo,
-        >,
+        dex_info: &DexInfo,
     ) -> Result<ReservesCallData<B>> {
         match self {
             EventId::UniswapV2(address) => {
-                let pool_info = uniswap_v2_pools
+                let pool_info = dex_info
+                    .uniswap_v2_pools
                     .get(&uniswap::v2::pool::PoolAddress(address, B::BLOCKCHAIN))
                     .ok_or(anyhow!("UniswapV2 pool {:?} info not found", address))?;
 
-                let token0 = tokens
+                let token0 = dex_info
+                    .tokens
                     .get(&pool_info.token0)
                     .ok_or(anyhow!("Token {:?} not found", pool_info.token0))?;
-                let token1 = tokens
+                let token1 = dex_info
+                    .tokens
                     .get(&pool_info.token1)
                     .ok_or(anyhow!("Token {:?} not found", pool_info.token1))?;
 
@@ -72,14 +65,17 @@ impl EventId {
                 ))
             }
             EventId::UniswapV3(address) => {
-                let pool_info = uniswap_v3_pools
+                let pool_info = dex_info
+                    .uniswap_v3_pools
                     .get(&uniswap::v3::pool::PoolAddress(address, B::BLOCKCHAIN))
                     .ok_or(anyhow!("UniswapV3 pool {:?} info not found", address))?;
 
-                let token0 = tokens
+                let token0 = dex_info
+                    .tokens
                     .get(&pool_info.token0)
                     .ok_or(anyhow!("Token {:?} not found", pool_info.token0))?;
-                let token1 = tokens
+                let token1 = dex_info
+                    .tokens
                     .get(&pool_info.token1)
                     .ok_or(anyhow!("Token {:?} not found", pool_info.token1))?;
 
@@ -93,14 +89,17 @@ impl EventId {
                 ))
             }
             EventId::UniswapV4(id) => {
-                let pool_info = uniswap_v4_pools
+                let pool_info = dex_info
+                    .uniswap_v4_pools
                     .get(&uniswap::v4::pool::PoolId(id, B::BLOCKCHAIN))
                     .ok_or(anyhow!("UniswapV4 pool {:?} info not found", id))?;
 
-                let token0 = tokens
+                let token0 = dex_info
+                    .tokens
                     .get(&pool_info.token0)
                     .ok_or(anyhow!("Token {:?} not found", pool_info.token0))?;
-                let token1 = tokens
+                let token1 = dex_info
+                    .tokens
                     .get(&pool_info.token1)
                     .ok_or(anyhow!("Token {:?} not found", pool_info.token1))?;
 
@@ -115,15 +114,18 @@ impl EventId {
                 ))
             }
             EventId::PancakeSwap(address) => {
-                let pool_info = pancake_swap_pools
+                let pool_info = dex_info
+                    .pancakeswap_pools
                     .get(&pancakeswap::v3::pool::PoolAddress(address, B::BLOCKCHAIN))
                     .ok_or(anyhow!("PancakeSwap pool {:?} info not found", address))?;
 
-                let token0 = tokens
+                let token0 = dex_info
+                    .tokens
                     .get(&pool_info.token0)
                     .ok_or(anyhow!("Token {:?} not found", pool_info.token0))?;
 
-                let token1 = tokens
+                let token1 = dex_info
+                    .tokens
                     .get(&pool_info.token1)
                     .ok_or(anyhow!("Token {:?} not found", pool_info.token1))?;
 

@@ -1,14 +1,10 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::LazyLock,
-};
+use std::collections::HashMap;
 
 use crate::{
     graph::{AdjacentTokens, DexGraph, TokenAdjacency},
-    tokens::{Token, TokenId},
+    tokens::TokenId,
 };
 use anyhow::{Result, anyhow};
-use evm::Blockchain;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
@@ -17,14 +13,6 @@ pub enum PoolId {
     Evm(evm::PoolId),
     Solana(solana::orca::PoolAddress),
 }
-
-// pub enum Pool {
-//     UniswapV2(evm::uniswap::v2::Pool),
-//     UniswapV3(evm::uniswap::v3::Pool),
-//     UniswapV4(evm::uniswap::v4::Pool),
-//     PancakeSwapV3(evm::pancakeswap::v3::Pool),
-//     Orca(solana::orca::Pool),
-// }
 
 pub enum Bridge {
     Evm(evm::chainlink::bridges::BridgeSource, TokenId),
@@ -198,35 +186,35 @@ const REMOTE_CHAIN_SELECTORS: [u64; 3] = [
     // solana::chainlink::chain_selector::SOLANA_CHAIN_SELECTOR,
 ];
 
-async fn with_evm_blockchain_pools(
-    blockchain: Blockchain,
-    graph: DexGraph<TokensConnectionType>,
-) -> Result<(
-    DexGraph<TokensConnectionType>,
-    HashMap<evm::tokens::TokenAddress, evm::tokens::TokenInfo>,
-)> {
-    let mut tokens_map = HashMap::new();
-    let (pools_u2, tokens) = evm::uniswap::v2::get_pools(blockchain, MIN_VALUE).await?;
-    tokens_map.extend(tokens.into_iter());
+// async fn with_evm_blockchain_pools(
+//     blockchain: Blockchain,
+//     graph: DexGraph<TokensConnectionType>,
+// ) -> Result<(
+//     DexGraph<TokensConnectionType>,
+//     HashMap<evm::tokens::TokenAddress, evm::tokens::TokenInfo>,
+// )> {
+//     let mut tokens_map = HashMap::new();
+//     let (pools_u2, tokens) = evm::uniswap::v2::get_pools(blockchain, MIN_VALUE).await?;
+//     tokens_map.extend(tokens.into_iter());
 
-    let (pools_u3, tokens) = evm::uniswap::v3::get_pools(blockchain, MIN_VALUE).await?;
-    tokens_map.extend(tokens.into_iter());
+//     let (pools_u3, tokens) = evm::uniswap::v3::get_pools(blockchain, MIN_VALUE).await?;
+//     tokens_map.extend(tokens.into_iter());
 
-    let (pools_u4, tokens) = evm::uniswap::v4::get_pools(blockchain, MIN_VALUE).await?;
-    tokens_map.extend(tokens.into_iter());
+//     let (pools_u4, tokens) = evm::uniswap::v4::get_pools(blockchain, MIN_VALUE).await?;
+//     tokens_map.extend(tokens.into_iter());
 
-    let (pools_p3, tokens) = evm::pancakeswap::v3::get_pools(blockchain, MIN_VALUE).await?;
-    tokens_map.extend(tokens.into_iter());
+//     let (pools_p3, tokens) = evm::pancakeswap::v3::get_pools(blockchain, MIN_VALUE).await?;
+//     tokens_map.extend(tokens.into_iter());
 
-    Ok((
-        graph
-            .with_adjacent_tokens(&pools_u2)
-            .with_adjacent_tokens(&pools_u3)
-            .with_adjacent_tokens(&pools_u4)
-            .with_adjacent_tokens(&pools_p3),
-        tokens_map,
-    ))
-}
+//     Ok((
+//         graph
+//             .with_adjacent_tokens(&pools_u2)
+//             .with_adjacent_tokens(&pools_u3)
+//             .with_adjacent_tokens(&pools_u4)
+//             .with_adjacent_tokens(&pools_p3),
+//         tokens_map,
+//     ))
+// }
 
 // async fn with_solana_blockchain_pools(
 //     graph: DexGraph<TokensConnectionType>,
@@ -235,16 +223,7 @@ async fn with_evm_blockchain_pools(
 //         .with_adjacent_tokens(&solana::orca::get_pools(MIN_VALUE.round().mantissa() as i32).await?))
 // }
 
-pub struct PoolsInformation {
-    pub tokens: HashMap<evm::tokens::TokenAddress, evm::tokens::TokenInfo>,
-    pub uniswap_v2_pools: HashMap<evm::uniswap::v2::PoolAddress, evm::uniswap::v2::PoolInfo>,
-    pub uniswap_v3_pools: HashMap<evm::uniswap::v3::PoolAddress, evm::uniswap::v3::PoolInfo>,
-    pub uniswap_v4_pools: HashMap<evm::uniswap::v4::PoolId, evm::uniswap::v4::PoolInfo>,
-    pub pancakeswap_pools:
-        HashMap<evm::pancakeswap::v3::PoolAddress, evm::pancakeswap::v3::PoolInfo>,
-}
-
-pub async fn collect_pools() -> Result<(PoolsInformation, DexGraph<TokensConnectionType>)> {
+pub async fn collect_pools() -> Result<(evm::DexInfo, DexGraph<TokensConnectionType>)> {
     let mut tokens_graph: DexGraph<TokensConnectionType> = DexGraph::new();
     let mut evm_tokens: HashMap<evm::tokens::TokenAddress, evm::tokens::TokenInfo> = HashMap::new();
     let mut evm_pools_u2: HashMap<evm::uniswap::v2::PoolAddress, evm::uniswap::v2::PoolInfo> =
@@ -306,7 +285,6 @@ pub async fn collect_pools() -> Result<(PoolsInformation, DexGraph<TokensConnect
         .collect::<Result<Vec<Bridge>>>()?;
 
     tokens_graph = tokens_graph.with_adjacent_tokens(&bridges);
-    // tokens_graph = tokens_graph.with_dead_end_tokens_removed();
 
     println!("Graph size: {}", tokens_graph.tokens_count());
     println!(
@@ -349,7 +327,7 @@ pub async fn collect_pools() -> Result<(PoolsInformation, DexGraph<TokensConnect
     println!("PancakeSwap pools after pruning: {}", p3);
     println!("Solana pools after pruning: {}", s);
 
-    let pools_information = PoolsInformation {
+    let dex_info = evm::DexInfo {
         tokens: evm_tokens
             .into_iter()
             .filter(|(address, _)| tokens_graph.contains_token(TokenId::Evm(*address)))
@@ -396,23 +374,11 @@ pub async fn collect_pools() -> Result<(PoolsInformation, DexGraph<TokensConnect
             .collect(),
     };
 
-    println!("Tokens map size: {}", pools_information.tokens.len());
-    println!(
-        "Uniswap V2 map size: {}",
-        pools_information.uniswap_v2_pools.len()
-    );
-    println!(
-        "Uniswap V3 map size: {}",
-        pools_information.uniswap_v3_pools.len()
-    );
-    println!(
-        "Uniswap V4 map size: {}",
-        pools_information.uniswap_v4_pools.len()
-    );
-    println!(
-        "PancakeSwap map size: {}",
-        pools_information.pancakeswap_pools.len()
-    );
+    println!("Tokens map size: {}", dex_info.tokens.len());
+    println!("Uniswap V2 map size: {}", dex_info.uniswap_v2_pools.len());
+    println!("Uniswap V3 map size: {}", dex_info.uniswap_v3_pools.len());
+    println!("Uniswap V4 map size: {}", dex_info.uniswap_v4_pools.len());
+    println!("PancakeSwap map size: {}", dex_info.pancakeswap_pools.len());
 
-    Ok((pools_information, tokens_graph))
+    Ok((dex_info, tokens_graph))
 }

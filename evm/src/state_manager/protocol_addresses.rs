@@ -2,6 +2,7 @@ use std::{collections::HashMap, marker::PhantomData};
 
 use alloy::{
     primitives::{Address, FixedBytes},
+    providers::fillers::RecommendedFillers,
     rpc::types::Log,
     sol_types::SolEvent,
 };
@@ -9,12 +10,11 @@ use anyhow::{Result, anyhow};
 
 use crate::{
     blockchain::{BlockNumber, BlockchainNetwork},
-    pancakeswap_internal as pancakeswap,
     state_manager::{
+        dex_info::DexInfo,
         event::{Event, EventId},
         pool_reserves_calls::ReservesCallData,
     },
-    tokens::{TokenAddress, TokenInfo},
     uniswap_internal as uniswap,
 };
 
@@ -25,14 +25,14 @@ fn try_get_topic1(log: Log) -> Result<FixedBytes<32>> {
         .ok_or(anyhow!("Failed to read topic1 from the Log\n{:?}", log))
 }
 
-pub struct ProtocolAddresses<B: BlockchainNetwork> {
+pub struct ProtocolAddresses<B: BlockchainNetwork + RecommendedFillers> {
     v2: HashMap<Address, fn(Address) -> EventId>,
     v3: HashMap<Address, fn(Address) -> EventId>,
     v4: HashMap<FixedBytes<32>, fn(FixedBytes<32>) -> EventId>,
     blockchain_marker: PhantomData<B>,
 }
 
-impl<B: BlockchainNetwork> ProtocolAddresses<B> {
+impl<B: BlockchainNetwork + RecommendedFillers> ProtocolAddresses<B> {
     pub fn new() -> Self {
         Self {
             v2: HashMap::new(),
@@ -57,31 +57,13 @@ impl<B: BlockchainNetwork> ProtocolAddresses<B> {
         self
     }
 
-    pub fn initial_calls(
-        &self,
-        tokens: &HashMap<TokenAddress, TokenInfo>,
-        uniswap_v2_pools: &HashMap<uniswap::v2::pool::PoolAddress, uniswap::v2::pool::PoolInfo>,
-        uniswap_v3_pools: &HashMap<uniswap::v3::pool::PoolAddress, uniswap::v3::pool::PoolInfo>,
-        uniswap_v4_pools: &HashMap<uniswap::v4::pool::PoolId, uniswap::v4::pool::PoolInfo>,
-        pancake_swap_pools: &HashMap<
-            pancakeswap::v3::pool::PoolAddress,
-            pancakeswap::v3::pool::PoolInfo,
-        >,
-    ) -> Result<Vec<ReservesCallData<B>>> {
+    pub fn initial_calls(&self, dex_info: &DexInfo) -> Result<Vec<ReservesCallData<B>>> {
         self.v2
             .iter()
             .map(|(address, ctor)| ctor(*address))
             .chain(self.v3.iter().map(|(address, ctor)| ctor(*address)))
             .chain(self.v4.iter().map(|(id, ctor)| ctor(*id)))
-            .map(|id: EventId| {
-                id.into_call_data(
-                    tokens,
-                    uniswap_v2_pools,
-                    uniswap_v3_pools,
-                    uniswap_v4_pools,
-                    pancake_swap_pools,
-                )
-            })
+            .map(|id: EventId| id.into_call_data(dex_info))
             .collect::<Result<Vec<_>>>()
     }
 

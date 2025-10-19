@@ -23,6 +23,7 @@ pub mod tokens;
 // pub const BLACKLIST: LazyLock<HashSet<TokenAddress>> = tokens::BLACKLIST;
 pub use blockchain::Blockchain;
 pub use pool_id::PoolId;
+pub use state_manager::dex_info::DexInfo;
 pub use state_manager::state_manager::StateManager;
 pub use virtual_reserves::VirtualReserves;
 

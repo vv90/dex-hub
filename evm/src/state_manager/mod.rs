@@ -1,3 +1,4 @@
+pub mod dex_info;
 mod event;
 mod pool_reserves_calls;
 mod protocol_addresses;

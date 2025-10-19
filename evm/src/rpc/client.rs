@@ -4,16 +4,22 @@ use alloy::{
     network::{Ethereum, NetworkWallet, ReceiptResponse, TransactionBuilder},
     primitives::{Address, FixedBytes, U256},
     providers::{
-        Identity, Provider, ProviderBuilder, RootProvider, WsConnect,
+        Identity, Provider, ProviderBuilder, RootProvider,
         fillers::{FillProvider, JoinFill, RecommendedFillers},
     },
-    rpc::types::{Filter, Log},
+    rpc::types::Log,
     sol_types::SolCall,
 };
 use anyhow::{Result, anyhow};
-use futures_util::StreamExt;
-use reqwest::Url;
-use tokio::{sync::mpsc, task::JoinHandle};
+use futures_util::{SinkExt, StreamExt, TryStreamExt};
+use reqwest::{
+    Url,
+    header::{CONNECTION, HOST, SEC_WEBSOCKET_KEY, SEC_WEBSOCKET_VERSION, UPGRADE},
+};
+use serde::Deserialize;
+use serde_json::json;
+use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::{self, Message, handshake::client::generate_key};
 
 use crate::{
     blockchain::{BlockNumber, BlockchainNetwork},
@@ -21,108 +27,149 @@ use crate::{
     rpc::{call_data::CallData, multicall_data::MulticallData, transaction_data::TransactionData},
 };
 
-// #[cfg(feature = "testnet")]
-// const ETHEREUM: &str = "sepolia";
-// #[cfg(not(feature = "testnet"))]
-// const ETHEREUM: &str = "ethereum";
-
 pub struct RpcClient<B: BlockchainNetwork, T: Provider<B>> {
     provider: T,
     _blockchain_marker: PhantomData<fn() -> B>,
 }
 
-pub async fn subscribe_blocks<B: BlockchainNetwork>(
-    sender: mpsc::Sender<u64>,
-) -> Result<JoinHandle<Result<()>>> {
-    let api_key = env!("DRPC_API_KEY");
-    let ws_url = env!("DRPC_WS_URL");
-
-    let handle = tokio::spawn(async move {
-        println!("Create provider");
-
-        let ws_connect = WsConnect::new(format!(
-            "{}?network={}&dkey={}",
-            ws_url,
-            B::BLOCKCHAIN.name(),
-            api_key
-        ));
-        let ws_provider = ProviderBuilder::new().connect_ws(ws_connect).await?;
-
-        println!("Connected to provider");
-
-        let sub = ws_provider.subscribe_blocks().await?;
-
-        println!("Subscribed to blocks");
-
-        let mut stream = sub.into_stream();
-        while let Some(header) = stream.next().await {
-            sender.send(header.number).await?;
-        }
-
-        Ok(())
-    });
-
-    Ok(handle)
+#[derive(Debug, Deserialize)]
+struct SubscriptionResponse {
+    id: i32,
 }
 
-pub async fn subscribe_topics<
-    T: Sync + Send + 'static,
-    B: BlockchainNetwork + RecommendedFillers,
->(
-    sender: mpsc::UnboundedSender<T>,
-    topics: HashSet<FixedBytes<32>>,
-    filter_map_log: impl Fn(Log) -> Option<T> + Send + 'static,
-) -> Result<JoinHandle<Result<()>>> {
-    let api_key = env!("DRPC_API_KEY");
-    let ws_url = env!("DRPC_WS_URL");
+#[derive(Debug, Deserialize)]
+struct SubscriptionDataParams<T> {
+    result: T,
+}
 
-    let handle = tokio::spawn(async move {
-        println!("Connecting");
-        let ws_connect = WsConnect::new(format!(
+#[derive(Debug, Deserialize)]
+struct SubscriptionNotification<T> {
+    params: SubscriptionDataParams<T>,
+}
+
+pub async fn subscribe_logs<B: BlockchainNetwork + RecommendedFillers>(
+    topics: HashSet<FixedBytes<32>>,
+) -> Result<mpsc::UnboundedReceiver<Log>> {
+    let ws_url = env!("DRPC_WS_URL");
+    let api_key = env!("DRPC_API_KEY");
+    let (sender, receiver) = mpsc::unbounded_channel::<Log>();
+
+    let request = tokio_tungstenite::tungstenite::http::Request::builder()
+        .header(HOST, "lb.drpc.org")
+        .header(UPGRADE, "websocket")
+        .header(CONNECTION, "Upgrade")
+        .header(SEC_WEBSOCKET_KEY, generate_key())
+        .header(SEC_WEBSOCKET_VERSION, "13")
+        .uri(format!(
             "{}?network={}&dkey={}",
             ws_url,
             B::BLOCKCHAIN.name(),
             api_key
-        ));
-        let ws_provider = ProviderBuilder::new_with_network::<B>()
-            .connect_ws(ws_connect)
-            .await?;
+        ))
+        .body(())?;
 
-        println!("Connected to provider");
+    let (ws_stream, _) = tokio_tungstenite::connect_async(request).await?;
+    let (mut write, mut read) = ws_stream.split();
+    let sub_id = 1;
+    let subscription_msg = json!({
+        "jsonrpc": "2.0",
+        "method": "eth_subscribe",
+        // "params": ["newHeads"],
+        // "params": [
+        //     "logs",
+        //     {"topics": [[
+        //         format!("{}", functions_v3::SWAP_TOPIC),
+        //         format!("{}", functions_v3::MINT_TOPIC),
+        //         format!("{}", functions_v3::BURN_TOPIC)]
+        //     }]],
+        "params": [
+            "logs",
+            {
+                "topics": [topics.into_iter().map(|topic| topic.to_string()).collect::<Vec<String>>()]
+            }
+        ],
+        "id": sub_id
+    })
+    .to_string();
 
-        // let filters = topics
-        //     .into_iter()
-        //     .map(|topic| Filter::new().event_signature(topic))
-        //     .collect::<Vec<_>>();
+    println!("Subscription message: {}", subscription_msg);
 
-        let filter = Filter::new().event_signature(topics.into_iter().collect::<Vec<_>>());
+    write
+        .send(tungstenite::protocol::Message::Text(
+            subscription_msg.into(),
+        ))
+        .await?;
 
-        // let subscriptions = futures_util::future::try_join_all(
-        //     filters
-        //         .into_iter()
-        //         .map(|filter| ws_provider.subscribe_logs(&filter).into_future()),
-        // )
-        // .await?;
-        let mut subscription = ws_provider.subscribe_logs(&filter).await?;
-
-        println!("Subscribed to topics");
-
-        // let mut stream = futures_util::stream::select_all(
-        //     subscriptions.into_iter().map(|sub| sub.into_stream()),
-        // );
-
-        while let Ok(log) = subscription.recv().await {
-            if let Some(value) = filter_map_log(log) {
-                sender.send(value)?;
+    loop {
+        match read.next().await {
+            None => {
+                println!(
+                    "Connection closed before receiving subscription response ({})",
+                    B::BLOCKCHAIN.name()
+                );
+                return Err(anyhow!(
+                    "Connection closed before receiving subscription response ({})",
+                    B::BLOCKCHAIN.name()
+                ));
+            }
+            Some(Ok(Message::Text(msg))) => {
+                match serde_json::from_slice::<SubscriptionResponse>(msg.as_bytes()) {
+                    Ok(response) => {
+                        if response.id == sub_id {
+                            println!("Received subscription response: {:?}", response);
+                            break;
+                        } else {
+                            println!("Received unexpected subscription id: {:?}", response);
+                        }
+                    }
+                    Err(err) => {
+                        println!("Failed to parse subscription response: {:?}", err);
+                    }
+                }
+            }
+            Some(msg) => {
+                println!("Received unexpected message: {:?}", msg);
             }
         }
+    }
 
-        println!("Connection closed");
-
-        Ok(())
+    tokio::spawn(async move {
+        println!("Listening for logs ({})", B::BLOCKCHAIN.name());
+        while let Some(message) = read.next().await {
+            match message {
+                Ok(Message::Text(msg)) => {
+                    match serde_json::from_slice::<SubscriptionNotification<Log>>(msg.as_bytes()) {
+                        Ok(sub_notification) => {
+                            if let Err(err) = sender.send(sub_notification.params.result) {
+                                println!("Failed to send update: {}", err);
+                            }
+                        }
+                        Err(err) => {
+                            println!("Failed to parse log: {}", err);
+                            println!("{}", msg);
+                        }
+                    }
+                }
+                Ok(Message::Ping(p)) => {
+                    if let Err(e) = write.send(Message::Pong(p)).await {
+                        println!("Error sending pong: {}", e);
+                    }
+                }
+                Ok(Message::Close(_)) => {
+                    println!("WebSocket connection closed");
+                    break;
+                }
+                Ok(_) => {
+                    println!("Received non-text message");
+                }
+                Err(e) => {
+                    println!("Error receiving message: {}", e);
+                }
+            }
+        }
     });
 
-    Ok(handle)
+    Ok(receiver)
 }
 
 pub type NetworkProvider<B> = FillProvider<
@@ -226,6 +273,27 @@ impl<B: BlockchainNetwork, T: Provider<B>> RpcClient<B, T> {
                 (next_position, collection)
             },
         );
+
+        Ok(results)
+    }
+
+    pub async fn get_multicall_chunked<D: MulticallData<B>>(
+        &self,
+        calls_data: &[D],
+        block_number: BlockNumber<B>,
+        chunk_size: usize,
+    ) -> Result<Vec<Result<D::Output, D::DecodeError>>> {
+        let results = futures_util::stream::iter(calls_data.chunks(chunk_size))
+            .map(anyhow::Ok)
+            .try_fold(
+                Vec::<Result<D::Output, D::DecodeError>>::new(),
+                async |mut combined_results, chunk| {
+                    let results = self.get_multicall(chunk, block_number).await?;
+                    combined_results.extend(results);
+                    Ok(combined_results)
+                },
+            )
+            .await?;
 
         Ok(results)
     }
