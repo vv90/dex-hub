@@ -1,5 +1,6 @@
 use rust_decimal::Decimal;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VirtualReserves {
     // pub pool_id: T,
     pub token0: Decimal,

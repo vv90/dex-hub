@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-solana = { path = "../solana" }
-
-anyhow = "1.0.99"
 evm = { path = "../evm" }
+solarium = { path = "../../solarium" }
+solana = { path = "../solana" }
+anyhow = "1.0.99"
 futures-util = "0.3"
 petgraph = "0.8.2"
 rust_decimal = { version = "1.37.2", features = ["maths"] }

@@ -9,9 +9,9 @@ use alloy::{
 use anyhow::{Result, anyhow};
 
 use crate::{
+    DexInfo,
     blockchain::{BlockNumber, BlockchainNetwork},
     state_manager::{
-        dex_info::DexInfo,
         event::{Event, EventId},
         pool_reserves_calls::ReservesCallData,
     },

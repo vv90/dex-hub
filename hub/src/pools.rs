@@ -223,7 +223,8 @@ const REMOTE_CHAIN_SELECTORS: [u64; 3] = [
 //         .with_adjacent_tokens(&solana::orca::get_pools(MIN_VALUE.round().mantissa() as i32).await?))
 // }
 
-pub async fn collect_pools() -> Result<(evm::DexInfo, DexGraph<TokensConnectionType>)> {
+pub async fn collect_pools() -> Result<(evm::DexInfo, Vec<Bridge>, DexGraph<TokensConnectionType>)>
+{
     let mut tokens_graph: DexGraph<TokensConnectionType> = DexGraph::new();
     let mut evm_tokens: HashMap<evm::tokens::TokenAddress, evm::tokens::TokenInfo> = HashMap::new();
     let mut evm_pools_u2: HashMap<evm::uniswap::v2::PoolAddress, evm::uniswap::v2::PoolInfo> =
@@ -380,5 +381,5 @@ pub async fn collect_pools() -> Result<(evm::DexInfo, DexGraph<TokensConnectionT
     println!("Uniswap V4 map size: {}", dex_info.uniswap_v4_pools.len());
     println!("PancakeSwap map size: {}", dex_info.pancakeswap_pools.len());
 
-    Ok((dex_info, tokens_graph))
+    Ok((dex_info, bridges, tokens_graph))
 }

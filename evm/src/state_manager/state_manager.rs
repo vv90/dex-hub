@@ -4,7 +4,7 @@ use std::{collections::HashSet, sync::Arc};
 use tokio::sync::mpsc::{self};
 
 use crate::{
-    Blockchain,
+    Blockchain, DexInfo,
     blockchain::{BlockNumber, BlockchainNetwork},
     evm_network, pancakeswap_internal as pancakeswap,
     pool_id::PoolId,
@@ -13,7 +13,6 @@ use crate::{
         client::{NetworkProvider, RpcClient},
     },
     state_manager::{
-        dex_info::DexInfo,
         event::{Event, EventId},
         protocol_addresses::ProtocolAddresses,
     },

@@ -1,7 +1,8 @@
 use crate::{
+    DexInfo,
     blockchain::{BlockNumber, BlockchainNetwork},
     pancakeswap_internal as pancakeswap,
-    state_manager::{dex_info::DexInfo, pool_reserves_calls::ReservesCallData},
+    state_manager::pool_reserves_calls::ReservesCallData,
     uniswap_internal as uniswap,
 };
 use alloy::primitives::{Address, FixedBytes};
